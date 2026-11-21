@@ -191,3 +191,18 @@ struct ProviderNetworkTests {
         #expect(ScoreKeeper().result(track: track, upTo: 10) == nil)
     }
 }
+
+@Suite struct PitchSimplifyTests {
+    @Test func mergesSyllablesIntoTrendBars() {
+        let notes = [
+            PitchNote(start: 0, end: 0.2, midi: 60.2), PitchNote(start: 0.25, end: 0.45, midi: 61.4), PitchNote(start: 0.5, end: 0.9, midi: 60.8),
+            PitchNote(start: 1.5, end: 1.6, midi: 70),
+            PitchNote(start: 2.0, end: 2.3, midi: 67), PitchNote(start: 2.35, end: 2.9, midi: 66),
+        ]
+        let s = PitchTrack(notes: notes).simplified()
+        #expect(s.notes.count == 2)
+        #expect(s.notes[0].start == 0 && s.notes[0].end == 0.9)
+        #expect(s.notes[0].midi == 61)
+        #expect(s.notes[1].midi == 66)
+    }
+}

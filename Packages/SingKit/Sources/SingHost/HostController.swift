@@ -32,7 +32,11 @@ public final class HostController: HostAPI {
     public private(set) var queue = QueueModel()
     public private(set) var nowPlaying = NowPlaying()
     public private(set) var lyrics: Lyrics?
-    public private(set) var pitchTrack: PitchTrack?
+    public private(set) var pitchTrack: PitchTrack? {
+        didSet { displayPitch = pitchTrack?.simplified() }
+    }
+    /// The trend shown on the TV; scoring keeps the detailed melody.
+    public private(set) var displayPitch: PitchTrack?
     @ObservationIgnored public private(set) var livePoints: [LivePitchPoint] = []
     @ObservationIgnored public private(set) var liveScore: Int?
     @ObservationIgnored var scoreHits = 0
