@@ -38,6 +38,8 @@ public final class HostController: HostAPI {
     @ObservationIgnored var scoreHits = 0
     @ObservationIgnored var scoreFrames = 0
     @ObservationIgnored var pitchTask: Task<Void, Never>?
+    @ObservationIgnored var scoreKeeper = ScoreKeeper()
+    public private(set) var lastResult: PerformanceResult?
     public private(set) var singers: [Singer] = []
     public private(set) var session: SessionInfo?
     public private(set) var preparing: [SongID: Double] = [:]
@@ -270,6 +272,7 @@ public final class HostController: HostAPI {
         liveScore = nil
         scoreHits = 0
         scoreFrames = 0
+        scoreKeeper = ScoreKeeper()
         pitchTask?.cancel()
         pitchTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -283,6 +286,7 @@ public final class HostController: HostAPI {
         guard nowPlaying.state == .playing else { return }
         let t = lyricTime
         livePoints.removeAll { $0.time < t - 6 || $0.time > t + 0.5 }
+        scoreKeeper.add(time: t, sungMidi: mic.livePitch.midi, level: mic.level)
         guard let sung = mic.livePitch.midi else { return }
         let target = pitchTrack?.note(at: t)
         let folded = target.map { PitchTrack.foldOctave(sung, toward: $0.midi) } ?? sung
@@ -538,14 +542,61 @@ public final class HostController: HostAPI {
     }
 
     func songFinished(skipped: Bool) {
+        let entry = nowPlaying.entry
+        let scored = scoreKeeper.result(track: pitchTrack, upTo: playback.duration)
         nowPlaying.state = .finished
-        finishCurrentPlay(skipped: skipped)
+        pitchTask?.cancel()
+        if let entry {
+            let cats = scored?.categories ?? []
+            let total = scored?.total
+            var badges: [String] = []
+            if let best = cats.max(by: { $0.value < $1.value }), best.value >= 85 { badges.append("\(best.name) \(best.value)") }
+            if (cats.first { $0.name == "Coverage" }?.value ?? 0) >= 95 { badges.append("Every note sung") }
+            lastResult = PerformanceResult(
+                entryID: entry.id, songTitle: entry.song.title, artist: entry.song.artist, singers: entry.singers,
+                total: total, grade: total.map(ScoreKeeper.grade), title: total == nil ? "Bravo!" : ScoreKeeper.title(for: cats),
+                comment: total == nil ? "No singing was picked up by the mic, but what a performance." : Self.comment(total!, cats),
+                categories: cats, badges: badges, leaderboard: []
+            )
+        }
+        finishCurrentPlay(skipped: skipped, score: scored.map { Double($0.total) })
         scheduleBroadcast()
+        let hold = max(7, settings.tv.resultSeconds)
+        let id = entry?.id
+        Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            if let board = try? await self.leaderboard(), self.lastResult?.entryID == id {
+                self.lastResult?.leaderboard = board
+                self.scheduleBroadcast()
+            }
+        }
         if settings.playback.autoAdvance {
             Task {
-                try? await Task.sleep(for: .seconds(2))
-                if self.nowPlaying.state == .finished { await self.playNext() }
+                try? await Task.sleep(for: .seconds(hold))
+                if self.nowPlaying.state == .finished, self.nowPlaying.entry?.id == id { await self.playNext() }
             }
+        }
+    }
+
+    static func comment(_ total: Int, _ cats: [ScoreCategory]) -> String {
+        let worst = cats.min { $0.value < $1.value }
+        switch total {
+        case 90...: return "Huge. The room is still clapping."
+        case 75..<90: return worst.map { "Great run. Only \($0.name.lowercased()) kept it from the top." } ?? "Great run."
+        case 55..<75: return worst.map { "Nice one. Next time, watch the \($0.name.lowercased())." } ?? "Nice one."
+        default: return "Brave choice. Try it again with a little guide vocal."
+        }
+    }
+
+    func leaderboard() async throws -> [RankedName] {
+        let sid = session?.id
+        return try await database.writer.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT si.name name, si.colorHex color, MAX(p.score) best FROM play p
+                JOIN playSinger ps ON ps.playId = p.id JOIN singer si ON si.id = ps.singerId
+                WHERE p.score IS NOT NULL AND (? IS NULL OR p.sessionId = ?)
+                GROUP BY si.id ORDER BY best DESC LIMIT 5
+                """, arguments: [sid, sid]).map { RankedName(name: $0["name"], count: Int(($0["best"] as Double?) ?? 0), colorHex: $0["color"]) }
         }
     }
 
@@ -599,8 +650,9 @@ public final class HostController: HostAPI {
         }
     }
 
-    func finishCurrentPlay(skipped: Bool) {
+    func finishCurrentPlay(skipped: Bool, score: Double? = nil) {
         guard var play = currentPlay else { return }
+        play.score = score
         currentPlay = nil
         let duration = max(playback.duration, 1)
         play.endedAt = .now
@@ -693,7 +745,8 @@ public final class HostController: HostAPI {
         return LiveState(
             nowPlaying: np,
             queue: queue.withEstimates(remainingCurrent: max(0, playback.duration - playback.position)),
-            settings: settings, singers: singers, session: session, preparing: preparing, requests: requests, mic: micStatus
+            settings: settings, singers: singers, session: session, preparing: preparing, requests: requests, mic: micStatus,
+            result: nowPlaying.state == .finished ? lastResult : nil
         )
     }
 

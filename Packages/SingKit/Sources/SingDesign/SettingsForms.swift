@@ -46,10 +46,14 @@ public struct TVDisplaySettingsSections: View {
             Toggle("Score reveal", isOn: $tv.showScoreReveal)
             Toggle("Score details", isOn: $tv.showScoreDetails)
             Toggle("Confetti", isOn: $tv.showConfetti)
+            VStack(alignment: .leading) {
+                Text("Results stay on screen for \(Int(tv.resultSeconds)) s")
+                Slider(value: $tv.resultSeconds, in: 7...30, step: 1)
+            }
         } header: {
             Text("Pitch and score")
         } footer: {
-            Text("Scoring arrives with milestone 7; these switches are already saved.")
+            Text("The score compares the mic with the melody of the separated vocals.")
         }
     }
 }

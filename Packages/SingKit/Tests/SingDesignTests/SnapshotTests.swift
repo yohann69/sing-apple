@@ -65,6 +65,11 @@ struct SnapshotTests {
         model.nowPlaying = np
         try render("tv-duet", model, time: 17.5)
 
+        model.nowPlaying.state = .finished
+        model.result = PerformanceResult(entryID: "x", songTitle: "Neon Harbor", artist: "x", singers: [lea], total: 87, grade: "A", title: "Pitch perfect", comment: "Great run. Only dynamics kept it from the top.",
+            categories: [ScoreCategory(name: "Pitch", value: 91, note: "Right on the notes"), ScoreCategory(name: "Rhythm", value: 84, note: "Locked to the beat"), ScoreCategory(name: "Stability", value: 78, note: "Some wobble on long notes"), ScoreCategory(name: "Dynamics", value: 70, note: "Try more contrast"), ScoreCategory(name: "Coverage", value: 92, note: "Sang 230 of 250 notes")],
+            badges: ["Pitch 91"], leaderboard: [RankedName(name: "Léa", count: 87, colorHex: "#FF8A3D"), RankedName(name: "Tom", count: 81, colorHex: "#4CC9F0")], endedAt: Date().addingTimeInterval(-7))
+        try render("tv-result", model, time: 0)
         model.nowPlaying.state = .idle
         try render("tv-idle", model, time: 0)
         model.nowPlaying.state = .preparing

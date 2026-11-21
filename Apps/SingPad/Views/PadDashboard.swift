@@ -116,7 +116,9 @@ struct StagePage: View {
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28))
             .animation(.spring(response: 0.6, dampingFraction: 0.85), value: np.entry?.id)
 
-            if np.entry != nil {
+            if let r = model.state.result, np.state == .finished {
+                ResultCard(result: r).transition(.scale(scale: 0.95).combined(with: .opacity))
+            } else if np.entry != nil {
                 VStack(spacing: 10) {
                     LyricsCard()
                     ProgressBar()
@@ -381,5 +383,35 @@ struct RequestSheet: View {
         }
         .padding(28)
         .presentationDetents([.medium, .large])
+    }
+}
+
+struct ResultCard: View {
+    var result: PerformanceResult
+
+    var body: some View {
+        HStack(spacing: 24) {
+            VStack(spacing: 4) {
+                Text(result.total.map(String.init) ?? "♪").font(.system(size: 64, weight: .black, design: .rounded))
+                if let g = result.grade { Text("Grade \(g)").font(.headline).opacity(0.75) }
+            }
+            .frame(width: 140)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(result.title).font(.title2.weight(.heavy))
+                Text(result.comment).opacity(0.8)
+                HStack(spacing: 14) {
+                    ForEach(result.categories) { c in
+                        VStack(spacing: 2) {
+                            Text("\(c.value)").font(.headline.monospacedDigit())
+                            Text(c.name).font(.caption).opacity(0.7)
+                        }
+                    }
+                }
+                .padding(.top, 4)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(20)
+        .glassEffect(.regular.tint((result.singers.first?.color ?? .orange).opacity(0.25)), in: RoundedRectangle(cornerRadius: 28))
     }
 }

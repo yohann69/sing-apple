@@ -37,6 +37,7 @@ public struct TVDisplaySettings: Codable, Sendable, Hashable {
     public var showScoreDetails = true
     public var showConfetti = true
     public var estimatedWordWipe = true
+    public var resultSeconds: Double = 10
     public var lyricSize: Double = 96
     public var backgroundSpeed: Double = 28
     public var background: TVBackground = .artworkBlobs
@@ -64,6 +65,7 @@ public struct TVDisplaySettings: Codable, Sendable, Hashable {
         showConfetti = v(.showConfetti, d.showConfetti)
         estimatedWordWipe = v(.estimatedWordWipe, d.estimatedWordWipe)
         lyricSize = v(.lyricSize, d.lyricSize)
+        resultSeconds = max(7, v(.resultSeconds, d.resultSeconds))
         backgroundSpeed = v(.backgroundSpeed, d.backgroundSpeed)
         background = v(.background, d.background)
     }
