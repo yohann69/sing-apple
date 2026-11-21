@@ -27,9 +27,6 @@ struct PadRoot: View {
             if model.saved == nil {
                 ConnectView()
                     .transition(.blurReplace)
-            } else if UIDevice.current.userInterfaceIdiom == .pad {
-                PadDashboard()
-                    .transition(.blurReplace)
             } else {
                 MainTabs()
                     .transition(.blurReplace)

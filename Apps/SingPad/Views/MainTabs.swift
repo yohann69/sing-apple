@@ -11,7 +11,12 @@ struct MainTabs: View {
     var body: some View {
         TabView(selection: $tab) {
             Tab("Now Playing", systemImage: "music.mic", value: "now") {
-                NavigationStack { NowPlayingView().toolbar { singerButton } }
+                NavigationStack {
+                    Group {
+                        if UIDevice.current.userInterfaceIdiom == .pad { PadStage() } else { NowPlayingView() }
+                    }
+                    .toolbar { singerButton }
+                }
             }
             Tab("Queue", systemImage: "list.number", value: "queue") {
                 NavigationStack { QueueView().toolbar { singerButton } }
@@ -27,7 +32,7 @@ struct MainTabs: View {
                 NavigationStack { PadSettingsView() }
             }
             Tab(value: "search", role: .search) {
-                NavigationStack { SearchView().toolbar { singerButton } }
+                NavigationStack { PadSearch().toolbar { singerButton } }
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
@@ -155,5 +160,37 @@ struct SingerPicker: View {
                 self.error = error.localizedDescription
             }
         }
+    }
+}
+
+/// Landscape iPad stage: everything on one screen, no scrolling.
+struct PadStage: View {
+    @Environment(PadModel.self) private var model
+    @Environment(\.singTheme) private var theme
+
+    var body: some View {
+        let np = model.state.nowPlaying
+        ZStack {
+            BlobBackground(colors: (np.entry?.song.paletteColors ?? theme.blobs).vivid(with: theme), base: theme.background, period: 34, dim: 0.42)
+            StagePage().padding(.horizontal, 24).padding(.bottom, 16)
+        }
+        .foregroundStyle(.white)
+        .navigationTitle("Now Playing")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// Search tab: the Mac searches the library, then Apple Music and Deezer.
+struct PadSearch: View {
+    @Environment(\.singTheme) private var theme
+
+    var body: some View {
+        ZStack {
+            BlobBackground(colors: theme.blobs, base: theme.background, period: 40, dim: 0.5)
+            SearchPanel().padding(.horizontal, 20).padding(.bottom, 12)
+        }
+        .foregroundStyle(.white)
+        .navigationTitle("Search")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

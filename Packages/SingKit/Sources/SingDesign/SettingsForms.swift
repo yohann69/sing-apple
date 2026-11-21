@@ -75,11 +75,6 @@ public struct PartySettingsSections: View {
                 Slider(value: $settings.playback.defaultGuideVocal, in: 0...1)
             }
         }
-        Section("Queue") {
-            Toggle("Guests can queue songs", isOn: $settings.queue.guestsCanQueue)
-            Toggle("Guests can remove their own songs", isOn: $settings.queue.guestsCanRemoveOwn)
-            Stepper(settings.queue.maxQueuedPerSinger == 0 ? "No limit per singer" : "Up to \(settings.queue.maxQueuedPerSinger) songs per singer", value: $settings.queue.maxQueuedPerSinger, in: 0...10)
-        }
         Section("Theme") {
             Picker("Colors", selection: $settings.theme.preset) {
                 ForEach(SingTheme.presetIDs, id: \.self) { id in
