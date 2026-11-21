@@ -143,6 +143,7 @@ public final class HostController: HostAPI {
         await loadRequests()
         await restoreQueue()
         startServer()
+        startWatching()
         tickTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
@@ -218,7 +219,49 @@ public final class HostController: HostAPI {
         if modelAvailable {
             await separation.enqueueBackground(songs.filter { $0.readiness != .ready }.map(\.id))
         }
+        await fulfillRequests()
         scheduleBroadcast()
+    }
+
+    // MARK: Watch folder
+
+    /// Audio files dropped in this folder are imported automatically (MAC-LIB-03).
+    public var watchFolder: URL? {
+        get { UserDefaults.standard.url(forKey: "watchFolder") }
+        set { UserDefaults.standard.set(newValue, forKey: "watchFolder"); startWatching() }
+    }
+    @ObservationIgnored var watchTask: Task<Void, Never>?
+    @ObservationIgnored var knownWatchFiles = Set<String>()
+
+    func startWatching() {
+        watchTask?.cancel()
+        guard let folder = watchFolder else { return }
+        knownWatchFiles = []
+        watchTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard let self else { return }
+                let files = LibraryStore.audioFiles(in: [folder]).filter { !self.knownWatchFiles.contains($0.path) }
+                let settled = files.filter { url in
+                    let m = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                    return Date.now.timeIntervalSince(m) > 3
+                }
+                guard !settled.isEmpty else { continue }
+                for f in settled { self.knownWatchFiles.insert(f.path) }
+                await self.importFiles(settled)
+            }
+        }
+    }
+
+    /// A requested song that arrives in the library is queued for the people who asked for it.
+    func fulfillRequests() async {
+        for r in requests {
+            let key = normalizeForMatch(r.track.title) + "|" + normalizeForMatch(Self.firstArtist(r.track.artist))
+            guard let song = songs.first(where: { normalizeForMatch($0.title) + "|" + normalizeForMatch(Self.firstArtist($0.artist)) == key || ($0.isrc != nil && $0.isrc == r.track.isrc) }) else { continue }
+            dismissRequest(r.id)
+            try? await enqueue(songID: song.id, singerIDs: r.singers.map(\.id), playNext: false, by: nil)
+            Task { await server?.broadcast(.toast(.init(message: "\(song.title) is now in the library and queued"))) }
+        }
     }
 
     func separationProgress(_ id: SongID, _ p: Double, _ r: Readiness) {
