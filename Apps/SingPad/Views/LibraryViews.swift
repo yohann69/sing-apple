@@ -321,10 +321,20 @@ struct PadSettingsView: View {
                 LabeledContent("Status", value: statusText)
                 Button("Disconnect from this Mac", role: .destructive) { model.disconnect() }
             }
+            Section {
+                Picker("Translate lyrics into", selection: Binding(get: { model.translationLanguage ?? "" }, set: { model.translationLanguage = $0.isEmpty ? nil : $0 })) {
+                    Text("Off").tag("")
+                    ForEach(model.languages, id: \.code) { l in Text(l.name).tag(l.code) }
+                }
+            } header: {
+                Text("My lyrics")
+            } footer: {
+                Text("Translated on the Mac with on-device AI, shown under each line on this device.")
+            }
             if model.isHost {
                 let tv = Binding(get: { model.state.settings.tv }, set: { v in model.updateSettings { $0.tv = v } })
                 let all = Binding(get: { model.state.settings }, set: { v in model.updateSettings { $0 = v } })
-                TVDisplaySettingsSections(tv: tv)
+                TVDisplaySettingsSections(tv: tv, languages: model.languages.map { LanguageOption(code: $0.code, name: $0.name) })
                 PartySettingsSections(settings: all)
             } else {
                 Section {
@@ -333,6 +343,7 @@ struct PadSettingsView: View {
             }
         }
         .navigationTitle("Settings")
+        .task { await model.loadLanguages() }
     }
 
     private var statusText: String {

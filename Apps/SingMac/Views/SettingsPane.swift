@@ -11,6 +11,7 @@ struct SettingsPane: View {
     @State private var inputs: [AudioDevice] = []
     @State private var apiStatus: String?
     @State private var pickingFolder = false
+    @State private var languages: [LanguageOption] = []
 
     var body: some View {
         Form {
@@ -34,7 +35,7 @@ struct SettingsPane: View {
                 Text("Music files saved in this folder are imported automatically. A requested song that arrives is queued for whoever asked for it.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            TVDisplaySettingsSections(tv: $host.settings.tv)
+            TVDisplaySettingsSections(tv: $host.settings.tv, languages: languages)
             Section("Audio") {
                 Picker("Music and mics play on", selection: $host.outputDeviceUID) {
                     Text("System default").tag(String?.none)
@@ -74,6 +75,7 @@ struct SettingsPane: View {
         }
         .navigationTitle("Settings")
         .task {
+            languages = await LyricsTranslator.languages().map { LanguageOption(code: $0.code, name: $0.name) }
             outputs = AudioDevices.outputs
             inputs = AudioDevices.inputs
         }

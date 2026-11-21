@@ -28,6 +28,19 @@ final class PadModel {
         didSet { UserDefaults.standard.set(currentSingerID, forKey: "currentSinger") }
     }
     var upNextAlert: ServerMessage.YoureUp?
+    /// This pad's own translation language for the lyrics shown on it.
+    var translationLanguage: String? = UserDefaults.standard.string(forKey: "translationLanguage") {
+        didSet {
+            UserDefaults.standard.set(translationLanguage, forKey: "translationLanguage")
+            lyricsSongID = nil
+            refreshLyricsIfNeeded()
+        }
+    }
+    var languages: [SingAPIClient.Language] = []
+
+    func loadLanguages() async {
+        if languages.isEmpty, let l = try? await client?.translationLanguages() { languages = l }
+    }
 
     @ObservationIgnored private var live: LiveConnection?
     @ObservationIgnored private var browser: ServerBrowser?
@@ -145,13 +158,14 @@ final class PadModel {
         }
     }
 
-    private func refreshLyricsIfNeeded() {
+    func refreshLyricsIfNeeded() {
         let id = state.nowPlaying.entry?.song.id
         guard id != lyricsSongID else { return }
         lyricsSongID = id
         lyrics = nil
         guard let id, let client else { return }
-        Task { lyrics = try? await client.lyrics(id) }
+        let lang = translationLanguage
+        Task { lyrics = try? await client.lyrics(id, translateTo: lang) }
     }
 
     // MARK: Actions

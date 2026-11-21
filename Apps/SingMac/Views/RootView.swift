@@ -2,6 +2,7 @@ import SingCore
 import SingDesign
 import SingHost
 import SwiftUI
+import Translation
 
 enum Pane: String, CaseIterable, Identifiable {
     case nowPlaying, queue, library, singers, stats, pads, settings
@@ -65,6 +66,11 @@ struct RootView: View {
                     }
                 }
                 .toolbar { TransportToolbar(host: host) }
+            }
+            .translationTask(host.pendingTranslationDownload.map { TranslationSession.Configuration(source: .init(identifier: $0.source), target: .init(identifier: $0.target)) }) { session in
+                nonisolated(unsafe) let s = session
+                try? await s.prepareTranslation()
+                host.translationDownloadFinished()
             }
             .overlay(alignment: .bottom) {
                 if let error = host.lastError {

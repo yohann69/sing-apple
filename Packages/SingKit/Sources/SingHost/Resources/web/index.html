@@ -82,7 +82,9 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const store = { get token() { return localStorage.getItem("sing.token") }, set token(v) { v ? localStorage.setItem("sing.token", v) : localStorage.removeItem("sing.token") },
   get padID() { return localStorage.getItem("sing.pad") }, set padID(v) { localStorage.setItem("sing.pad", v) },
-  get singer() { const v = localStorage.getItem("sing.singer"); return v ? Number(v) : null }, set singer(v) { localStorage.setItem("sing.singer", v) } };
+  get singer() { const v = localStorage.getItem("sing.singer"); return v ? Number(v) : null }, set singer(v) { localStorage.setItem("sing.singer", v) },
+  get lang() { return localStorage.getItem("sing.lang") || "" }, set lang(v) { localStorage.setItem("sing.lang", v) } };
+let languages = [];
 let state = null, tab = "now", lyrics = null, lyricsFor = null, ws = null, searchTimer = null, lastResults = { songs: [], catalog: [] };
 
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2800) }
@@ -131,7 +133,7 @@ async function loadLyrics() {
   const id = state?.nowPlaying?.entry?.song?.id;
   if (id === lyricsFor) return;
   lyricsFor = id; lyrics = null;
-  if (id) lyrics = await api(`/v1/songs/${id}/lyrics`).catch(() => null);
+  if (id) lyrics = await api(`/v1/songs/${id}/lyrics` + (store.lang ? `?translate=${store.lang}` : "")).catch(() => null);
 }
 
 function position() {
@@ -215,6 +217,9 @@ function meView() {
   return `<h1>${me ? esc(me.name) : "Who are you?"}</h1><p class="sub">Pick your name so your songs and stats follow you.</p>
   <div class="chips">${(state?.singers || []).map(s => `<button class="chip ${s.id === store.singer ? "on" : ""}" data-singer="${s.id}"><span class="dot" style="background:${esc(s.colorHex)}"></span>${esc(s.name)}</button>`).join("")}</div>
   <div class="card"><p style="margin-top:0">New here?</p><input id="newName" placeholder="Your name" maxlength="24"><div style="height:10px"></div><button class="btn" id="create">I'm in</button></div>
+  <h2>Translate the lyrics</h2><div class="card"><select id="lang" style="width:100%;min-height:48px;border-radius:999px;background:transparent;color:var(--text);border:1px solid var(--stroke);padding:0 14px;font:inherit">
+    <option value="">Off</option>${languages.map(l => `<option value="${esc(l.code)}" ${l.code === store.lang ? "selected" : ""}>${esc(l.name)}</option>`).join("")}</select>
+    <p class="sub" style="margin-bottom:0">Translated on the Mac with on-device AI, shown under each line on your phone.</p></div>
   <div style="height:16px"></div><button class="btn ghost" id="leave">Leave this party</button>`;
 }
 
@@ -228,6 +233,8 @@ function bind() {
     const name = $("#newName").value.trim(); if (!name) return;
     try { const s = await api("/v1/singers", { method: "POST", body: JSON.stringify({ name, emoji: "" }) }); store.singer = s.id; if (!state.singers.some(x => x.id === s.id)) state.singers.push(s); tab = "search"; paint() } catch (e) { toast(e.message) }
   };
+  const langSel = $("#lang"); if (langSel) langSel.onchange = () => { store.lang = langSel.value; lyricsFor = null; loadLyrics(); toast(langSel.value ? "Lyrics will be translated" : "Translation off") };
+  if (tab === "me" && !languages.length && store.token) api("/v1/translation/languages").then(l => { languages = l; if (tab === "me") paint() }).catch(() => {});
   const leave = $("#leave"); if (leave) leave.onclick = () => { store.token = null; ws?.close(); state = null; render() };
   const q = $("#q");
   if (q && !q._bound) {
@@ -272,7 +279,8 @@ setInterval(() => {
   for (let k = 0; k < lyrics.lines.length; k++) { if (lyrics.lines[k].start <= t + 0.2) i = k; else break }
   const line = i >= 0 ? lyrics.lines[i].segments.map(s => s.text + (s.endsWord ? " " : "")).join("") : "♪";
   const next = lyrics.lines[i + 1] ? lyrics.lines[i + 1].segments.map(s => s.text + (s.endsWord ? " " : "")).join("") : "";
-  const html = esc(line) + (next ? `<small>${esc(next)}</small>` : "");
+  const tr = i >= 0 ? lyrics.lines[i].translation : null;
+  const html = esc(line) + (tr ? `<small style="font-style:italic;color:var(--accent2)">${esc(tr)}</small>` : "") + (next ? `<small>${esc(next)}</small>` : "");
   if (el.innerHTML !== html) el.innerHTML = html;
 }, 200);
 

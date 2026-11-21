@@ -33,6 +33,8 @@ public struct TVDisplaySettings: Codable, Sendable, Hashable {
     public var showCountdown = true
     public var showJoinQR = true
     public var showTranslation = false
+    /// Language the TV translates lyrics into, as an ISO code ("fr", "en"…); nil means off.
+    public var translationLanguage: String?
     public var showScoreReveal = true
     public var showScoreDetails = true
     public var showConfetti = true
@@ -60,6 +62,7 @@ public struct TVDisplaySettings: Codable, Sendable, Hashable {
         showCountdown = v(.showCountdown, d.showCountdown)
         showJoinQR = v(.showJoinQR, d.showJoinQR)
         showTranslation = v(.showTranslation, d.showTranslation)
+        translationLanguage = try? c.decodeIfPresent(String.self, forKey: .translationLanguage)
         showScoreReveal = v(.showScoreReveal, d.showScoreReveal)
         showScoreDetails = v(.showScoreDetails, d.showScoreDetails)
         showConfetti = v(.showConfetti, d.showConfetti)
