@@ -30,6 +30,6 @@ let package = Package(
             ]
         ),
         .testTarget(name: "SingCoreTests", dependencies: ["SingCore"], resources: [.copy("Fixtures")]),
-        .testTarget(name: "SingHostTests", dependencies: ["SingHost"], resources: [.copy("Fixtures")]),
+        .testTarget(name: "SingHostTests", dependencies: ["SingHost", "SingClient"], resources: [.copy("Fixtures")]),
     ]
 )

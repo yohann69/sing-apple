@@ -23,6 +23,8 @@ public final class HostController: HostAPI {
     @ObservationIgnored var broadcastTask: Task<Void, Never>?
     @ObservationIgnored var tickTask: Task<Void, Never>?
     @ObservationIgnored var currentPlay: PlayRecord?
+    @ObservationIgnored let requestedPort: Int
+    @ObservationIgnored let advertise: Bool
 
     public private(set) var songs: [SongSummary] = []
     public private(set) var queue = QueueModel()
@@ -59,10 +61,12 @@ public final class HostController: HostAPI {
     public var micLevel: Float { mic.level }
     public var micRunning: Bool { mic.isRunning }
     public var serverName: String { Host.current().localizedName ?? "Sing! Mac" }
-    public var port: Int { server?.port ?? SingProtocol.defaultPort }
+    public var port: Int { server?.port ?? requestedPort }
 
-    public init(paths: SingPaths = .default, modelURL: URL? = nil) throws {
+    public init(paths: SingPaths = .default, modelURL: URL? = nil, port: Int = SingProtocol.defaultPort, advertise: Bool = true) throws {
         self.paths = paths
+        self.requestedPort = port
+        self.advertise = advertise
         try paths.ensure()
         database = try SingDatabase.open(at: paths.database)
         library = LibraryStore(db: database, paths: paths)
@@ -134,7 +138,7 @@ public final class HostController: HostAPI {
     }
 
     func startServer() {
-        let server = SingServer(api: self)
+        let server = SingServer(api: self, port: requestedPort)
         self.server = server
         Task.detached {
             do {
@@ -144,7 +148,7 @@ public final class HostController: HostAPI {
                 await MainActor.run { self.serverRunning = false; self.lastError = "Pad server stopped: \(error)" }
             }
         }
-        bonjour.start(name: serverName, port: server.port)
+        if advertise { bonjour.start(name: serverName, port: server.port) }
     }
 
     public var joinURL: String {
@@ -613,7 +617,7 @@ public final class HostController: HostAPI {
     public func singers() async -> [Singer] { singers }
 
     public func createSinger(name: String, emoji: String?, pad: PadIdentity) async throws -> Singer {
-        try await addSinger(name: name, emoji: emoji, padID: pad.padID)
+        try await addSinger(name: name, emoji: emoji?.isEmpty == true ? nil : emoji, padID: pad.padID)
     }
 
     public func stats(_ period: StatsPeriod) async throws -> StatsResponse {
