@@ -128,6 +128,7 @@ public struct LiveState: Codable, Sendable, Hashable {
     public var session: SessionInfo?
     public var requests: [SongRequest] = []
     public var mic: MicStatus? = nil
+    public var result: PerformanceResult? = nil
     /// Separation progress keyed by song id as a string, so JSON keeps an object.
     public var preparingByID: [String: Double]
 
@@ -135,7 +136,8 @@ public struct LiveState: Codable, Sendable, Hashable {
         Dictionary(uniqueKeysWithValues: preparingByID.compactMap { k, v in SongID(k).map { ($0, v) } })
     }
 
-    public init(nowPlaying: NowPlaying = NowPlaying(), queue: [QueueEntry] = [], settings: SingSettings = SingSettings(), singers: [Singer] = [], session: SessionInfo? = nil, preparing: [SongID: Double] = [:], requests: [SongRequest] = [], mic: MicStatus? = nil) {
+    public init(nowPlaying: NowPlaying = NowPlaying(), queue: [QueueEntry] = [], settings: SingSettings = SingSettings(), singers: [Singer] = [], session: SessionInfo? = nil, preparing: [SongID: Double] = [:], requests: [SongRequest] = [], mic: MicStatus? = nil, result: PerformanceResult? = nil) {
+        self.result = result
         self.requests = requests
         self.mic = mic
         self.nowPlaying = nowPlaying

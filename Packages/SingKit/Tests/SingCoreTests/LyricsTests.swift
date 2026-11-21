@@ -167,3 +167,27 @@ struct ProviderNetworkTests {
         for l in r.lyrics.lines { for (a, b) in zip(l.segments, l.segments.dropFirst()) { #expect(a.start <= b.start) } }
     }
 }
+
+@Suite struct ScoreTests {
+    @Test func perfectAndSilentSinging() throws {
+        let notes = (0..<10).map { PitchNote(start: Double($0), end: Double($0) + 0.8, midi: 60 + Float($0 % 3)) }
+        let track = PitchTrack(notes: notes)
+        var good = ScoreKeeper()
+        var t = 0.0
+        while t < 10 {
+            let n = track.note(at: t)
+            good.add(time: t, sungMidi: n.map { $0.midi - 12 }, level: n == nil ? 0 : Float(0.2 + 0.2 * sin(t)))
+            t += 0.033
+        }
+        let r = try #require(good.result(track: track, upTo: 10))
+        #expect(r.total > 85)
+        #expect(r.categories.first { $0.name == "Pitch" }?.value == 100)
+
+        var off = ScoreKeeper()
+        t = 0
+        while t < 10 { off.add(time: t, sungMidi: 66, level: 0.3); t += 0.033 }
+        let r2 = try #require(off.result(track: track, upTo: 10))
+        #expect(r2.total < r.total)
+        #expect(ScoreKeeper().result(track: track, upTo: 10) == nil)
+    }
+}

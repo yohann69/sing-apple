@@ -81,3 +81,32 @@ struct EndToEndTests {
         live.stop()
     }
 }
+
+@MainActor
+@Suite(.serialized, .enabled(if: FileManager.default.fileExists(atPath: sampleFolder.path)))
+struct ResultHoldTests {
+    @Test func resultsStayAtLeastSevenSeconds() async throws {
+        let paths = tempPaths()
+        defer { try? FileManager.default.removeItem(at: paths.root) }
+        let host = try HostController(paths: paths, modelURL: paths.models.appendingPathComponent("none.mlmodelc"), port: Int.random(in: 49000..<50000), advertise: false)
+        host.settings.playback.countdownBetweenSongs = false
+        host.settings.playback.micEnabled = false
+        host.settings.services = { var s = host.settings.services; s.singAPIEnabled = false; s.lrclibEnabled = false; s.neteaseEnabled = false; s.kugouEnabled = false; return s }()
+        await host.start()
+        await host.importFiles([sampleFolder])
+        let ids = host.songs.prefix(2).map(\.id)
+        try await host.enqueue(songID: ids[0], singerIDs: [], playNext: false, by: nil)
+        try await host.enqueue(songID: ids[1], singerIDs: [], playNext: false, by: nil)
+        try await Task.sleep(for: .seconds(1))
+        host.seek(to: host.duration - 1)
+        try await Task.sleep(for: .seconds(2.5))
+        #expect(host.nowPlaying.state == .finished)
+        #expect(host.lastResult != nil)
+        #expect(host.liveStateSnapshot.result != nil)
+        try await Task.sleep(for: .seconds(4))
+        #expect(host.nowPlaying.state == .finished, "still showing results after ~5 s")
+        try await Task.sleep(for: .seconds(6))
+        #expect(host.nowPlaying.entry?.song.id == ids[1])
+        host.stopPlayback()
+    }
+}

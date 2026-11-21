@@ -83,6 +83,7 @@ struct TVRootView: View {
             queuePreview: host.queue.entries
         )
         model.pitch = host.pitchTrack
+        model.result = host.nowPlaying.state == .finished ? host.lastResult : nil
         model.live = { [host] in (host.livePoints, host.liveScore) }
         return model
     }

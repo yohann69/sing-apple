@@ -15,6 +15,7 @@ public struct TVStageModel {
     public var duration: TimeInterval
     public var queuePreview: [QueueEntry]
     public var pitch: PitchTrack?
+    public var result: PerformanceResult?
     public var live: () -> (points: [LivePitchPoint], score: Int?) = { ([], nil) }
 
     public init(nowPlaying: NowPlaying, lyrics: Lyrics?, upNext: QueueEntry?, settings: TVDisplaySettings, artwork: Image?, joinURL: String, guestCode: String, preparingProgress: Double?, countdownEnd: Date?, duration: TimeInterval, queuePreview: [QueueEntry]) {
@@ -85,7 +86,11 @@ public struct TVStageView: View {
         case .countdown:
             CountdownStage(model: model, scale: scale).transition(.blurFade)
         case .finished:
-            FinishedStage(model: model, scale: scale).transition(.blurFade)
+            if model.settings.showScoreReveal, let r = model.result {
+                ScoreRevealStage(result: r, settings: model.settings, scale: scale).transition(.blurFade)
+            } else {
+                FinishedStage(model: model, scale: scale).transition(.blurFade)
+            }
         case .playing, .paused:
             SingingStage(model: model, time: time, scale: scale).transition(.blurFade)
         }
