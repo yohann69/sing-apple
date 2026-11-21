@@ -8,3 +8,4 @@ SampleLibrary/
 Models/*.mlpackage
 Models/*.mlmodelc
 *.xcresult
+build/

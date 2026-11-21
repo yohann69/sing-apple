@@ -223,6 +223,12 @@ enum WebRemote {
             let m = ##"{"name":"Sing!","short_name":"Sing!","start_url":"/","display":"standalone","background_color":"#0F0A08","theme_color":"#F26B1D"}"##
             return HTTPResponse(contentType: "application/manifest+json", body: Data(m.utf8))
         }
+        if path == "/sing.apk" {
+            guard let apk = try? Data(contentsOf: SingPaths.default.root.appendingPathComponent("Sing.apk")) else {
+                return HTTPResponse(status: 404, contentType: "text/plain", body: Data("No Android app on this Mac".utf8))
+            }
+            return HTTPResponse(contentType: "application/vnd.android.package-archive", body: apk, extraHeaders: ["Content-Disposition": "attachment; filename=\"Sing.apk\""])
+        }
         guard let html else { return HTTPResponse(status: 404, contentType: "text/plain", body: Data("Web remote missing".utf8)) }
         return HTTPResponse(contentType: "text/html; charset=utf-8", body: html, extraHeaders: ["Cache-Control": "no-cache"])
     }

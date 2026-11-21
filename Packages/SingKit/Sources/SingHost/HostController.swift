@@ -82,6 +82,7 @@ public final class HostController: HostAPI {
         self.requestedPort = port
         self.advertise = advertise
         try paths.ensure()
+        Self.installBundledModels(into: paths.models)
         database = try SingDatabase.open(at: paths.database)
         library = LibraryStore(db: database, paths: paths)
         stats = StatsService(db: database)
@@ -114,6 +115,16 @@ public final class HostController: HostAPI {
         var value: ServiceSettings {
             get { lock.withLock { _value } }
             set { lock.withLock { _value = newValue } }
+        }
+    }
+
+    /// A DMG build carries the Core ML models; the first launch copies them where the host looks for them.
+    static func installBundledModels(into dir: URL) {
+        for name in ["htdemucs", "crepe_full", "ecapa"] {
+            let dest = dir.appendingPathComponent("\(name).mlmodelc")
+            guard !FileManager.default.fileExists(atPath: dest.path),
+                  let src = Bundle.main.url(forResource: name, withExtension: "mlmodelc") else { continue }
+            try? FileManager.default.copyItem(at: src, to: dest)
         }
     }
 
