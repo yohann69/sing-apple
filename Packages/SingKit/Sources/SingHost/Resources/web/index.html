@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0F0A08">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest.webmanifest">
+<title>Sing!</title>
+<style>
+:root{--bg:#0F0A08;--text:#FFF4EC;--sub:rgba(255,244,236,.68);--glass:rgba(255,244,236,.09);--stroke:rgba(255,244,236,.16);--accent:#F26B1D;--accent2:#FF9A57;--ok:#7BE07B;--c1:#FF6A13;--c2:#C2264B;--c3:#FFB347;--c4:#5B1A7A}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{background:var(--bg)}
+body{background:transparent}
+html,body{margin:0;height:100%;color:var(--text);font:16px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,Roboto,system-ui,sans-serif}
+.bg{position:fixed;inset:0;overflow:hidden;z-index:-1;background:var(--bg)}
+.bg i{position:absolute;width:90vmax;height:90vmax;border-radius:50%;filter:blur(70px);opacity:.8;transition:background 1.6s ease}
+.bg i:nth-child(1){left:-30vmax;top:-30vmax;background:var(--c1);animation:a 28s ease-in-out infinite alternate}
+.bg i:nth-child(2){right:-35vmax;top:-10vmax;background:var(--c2);animation:b 34s ease-in-out infinite alternate}
+.bg i:nth-child(3){left:-10vmax;bottom:-45vmax;background:var(--c3);animation:c 30s ease-in-out infinite alternate}
+.bg::after{content:"";position:absolute;inset:0;background:rgba(0,0,0,.35)}
+@keyframes a{to{transform:translate(20vmax,15vmax) scale(1.15)}}
+@keyframes b{to{transform:translate(-20vmax,10vmax) scale(.9)}}
+@keyframes c{to{transform:translate(15vmax,-20vmax) scale(1.1)}}
+main{max-width:640px;margin:0 auto;padding:calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 96px)}
+h1{font-size:44px;font-weight:900;letter-spacing:-.03em;margin:8px 0 4px;background:linear-gradient(180deg,var(--accent2),var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent}
+h2{font-size:22px;margin:18px 0 10px}
+.card{background:var(--glass);border:1px solid var(--stroke);border-radius:24px;padding:16px;backdrop-filter:blur(30px) saturate(160%);-webkit-backdrop-filter:blur(30px) saturate(160%);box-shadow:inset 0 1px 0 rgba(255,255,255,.18)}
+.sub{color:var(--sub)}
+button{font:inherit;color:inherit;border:0;cursor:pointer;background:none}
+.btn{min-height:48px;padding:0 22px;border-radius:999px;font-weight:700;background:var(--accent);color:#fff;width:100%}
+.btn.ghost{background:var(--glass);border:1px solid var(--stroke)}
+input{font:inherit;color:var(--text);width:100%;min-height:52px;padding:0 18px;border-radius:999px;border:1px solid var(--stroke);background:var(--glass);outline:none;backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px)}
+input::placeholder{color:var(--sub)}
+.code{font:700 36px/1 ui-monospace,SFMono-Regular,Menlo,monospace;text-align:center;letter-spacing:.2em}
+.row{display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid rgba(255,255,255,.07)}
+.row:last-child{border-bottom:0}
+.art{width:52px;height:52px;border-radius:12px;flex:none;object-fit:cover;background:linear-gradient(135deg,var(--c1),var(--c2))}
+.grow{flex:1;min-width:0}
+.title{font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta{font-size:13px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;background:var(--glass);border:1px solid var(--stroke);white-space:nowrap}
+.pill.ok{color:var(--ok)}
+.dot{width:12px;height:12px;border-radius:50%;flex:none}
+.tabs{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 12px);display:flex;gap:4px;padding:6px;border-radius:999px;background:rgba(40,25,20,.55);border:1px solid var(--stroke);backdrop-filter:blur(30px) saturate(180%);-webkit-backdrop-filter:blur(30px) saturate(180%);box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.tabs button{padding:10px 16px;border-radius:999px;font-size:14px;font-weight:650;color:var(--sub);transition:background .25s,color .25s}
+.tabs button.on{background:var(--accent);color:#fff}
+.now{display:flex;gap:16px;align-items:center}
+.now img,.now .art{width:96px;height:96px;border-radius:20px}
+.lyric{font-size:24px;font-weight:750;letter-spacing:-.01em;min-height:66px;margin-top:14px;transition:opacity .4s}
+.lyric small{display:block;font-size:16px;font-weight:600;color:var(--sub);margin-top:6px}
+.bar{height:4px;border-radius:4px;background:rgba(255,255,255,.15);margin-top:12px;overflow:hidden}
+.bar>div{height:100%;background:#fff;width:0;transition:width .5s linear}
+.sheet{position:fixed;inset:0;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .3s}
+.sheet.open{opacity:1;pointer-events:auto}
+.sheet .card{width:100%;max-width:640px;border-radius:28px 28px 0 0;padding:22px 18px calc(env(safe-area-inset-bottom) + 22px);transform:translateY(40px);transition:transform .35s cubic-bezier(.2,.8,.2,1);background:rgba(30,20,16,.85)}
+.sheet.open .card{transform:none}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 16px}
+.chip{display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;background:var(--glass);border:1px solid var(--stroke);font-weight:600}
+.chip.on{background:rgba(242,107,29,.35);border-color:var(--accent)}
+.toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 12px);transform:translate(-50%,-80px);padding:12px 18px;border-radius:999px;background:rgba(40,25,20,.85);border:1px solid var(--stroke);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);font-weight:650;transition:transform .35s cubic-bezier(.2,.8,.2,1);z-index:10;max-width:90vw;text-align:center}
+.toast.show{transform:translate(-50%,0)}
+.up{background:linear-gradient(135deg,rgba(242,107,29,.55),rgba(194,38,75,.45))}
+.hidden{display:none}
+.x{width:36px;height:36px;border-radius:50%;background:var(--glass);border:1px solid var(--stroke)}
+.empty{color:var(--sub);padding:12px 4px}
+</style>
+</head>
+<body>
+<div class="bg"><i></i><i></i><i></i></div>
+<div class="toast" id="toast"></div>
+<main id="app"></main>
+<nav class="tabs hidden" id="tabs">
+  <button data-tab="now">Now</button>
+  <button data-tab="search">Search</button>
+  <button data-tab="queue">Queue</button>
+  <button data-tab="me">Me</button>
+</nav>
+<div class="sheet" id="sheet"><div class="card" id="sheetBody"></div></div>
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const store = { get token() { return localStorage.getItem("sing.token") }, set token(v) { v ? localStorage.setItem("sing.token", v) : localStorage.removeItem("sing.token") },
+  get padID() { return localStorage.getItem("sing.pad") }, set padID(v) { localStorage.setItem("sing.pad", v) },
+  get singer() { const v = localStorage.getItem("sing.singer"); return v ? Number(v) : null }, set singer(v) { localStorage.setItem("sing.singer", v) } };
+let state = null, tab = "now", lyrics = null, lyricsFor = null, ws = null, searchTimer = null, lastResults = { songs: [], catalog: [] };
+
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2800) }
+
+async function api(path, opts = {}) {
+  const headers = { "Content-Type": "application/json" };
+  if (store.token) headers.Authorization = "Bearer " + store.token;
+  const r = await fetch(path, { ...opts, headers });
+  const body = await r.json().catch(() => ({}));
+  if (r.status === 401) { store.token = null; render(); throw new Error(body.message || "Pair again") }
+  if (!r.ok) throw new Error(body.message || "Error " + r.status);
+  return body;
+}
+
+const art = id => id ? `/v1/songs/${id}/artwork?token=${encodeURIComponent(store.token)}` : "";
+const artImg = (s, cls = "art") => s && s.hasArtwork ? `<img class="${cls}" src="${art(s.id)}" alt="" loading="lazy">` : `<div class="${cls}"></div>`;
+const singer = () => state?.singers?.find(s => s.id === store.singer);
+const fmt = ms => { const s = Math.max(0, Math.round(ms / 1000)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") };
+
+async function pair(code) {
+  const r = await api("/v1/pair", { method: "POST", body: JSON.stringify({ code: code.trim(), deviceName: "Web · " + (navigator.userAgent.match(/iPhone|Android|iPad|Mac/)?.[0] || "Phone"), deviceModel: "web", protocolVersion: 1 }) });
+  store.token = r.token; store.padID = r.padID;
+  history.replaceState(null, "", "/");
+  connect(); render();
+}
+
+function connect() {
+  if (!store.token) return;
+  try { ws?.close() } catch {}
+  ws = new WebSocket(`ws://${location.hostname}:${Number(location.port || 80) + 1}/v1/live`);
+  ws.onopen = () => ws.send(JSON.stringify({ type: "auth", data: { token: store.token } }));
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.type === "state") { state = m.data; paint(); loadLyrics() }
+    else if (m.type === "position" && state) { state.nowPlaying.positionMs = m.data.positionMs; state.nowPlaying.positionAt = m.data.at }
+    else if (m.type === "youreUp" && m.data.singerID === store.singer && m.data.songsAway <= 2) toast(m.data.songsAway === 1 ? "You're up next! 🎤" : `You're up in ${m.data.songsAway} songs`);
+    else if (m.type === "toast") toast(m.data.message);
+    else if (m.type === "error") { toast(m.data.message); if (m.data.code === "unauthorized") { store.token = null; render() } }
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+}
+
+function send(type, data) { ws?.readyState === 1 ? ws.send(JSON.stringify({ type, data })) : toast("Reconnecting…") }
+
+async function loadLyrics() {
+  const id = state?.nowPlaying?.entry?.song?.id;
+  if (id === lyricsFor) return;
+  lyricsFor = id; lyrics = null;
+  if (id) lyrics = await api(`/v1/songs/${id}/lyrics`).catch(() => null);
+}
+
+function position() {
+  const np = state?.nowPlaying; if (!np) return 0;
+  return np.state === "playing" ? np.positionMs + (Date.now() - np.positionAt) : np.positionMs;
+}
+
+function render() {
+  const app = $("#app");
+  if (!store.token) {
+    $("#tabs").classList.add("hidden");
+    const code = new URLSearchParams(location.search).get("code");
+    app.innerHTML = `<h1>Sing!</h1><p class="sub">Join the karaoke from your phone. No app needed.</p>
+      <div class="card"><p>Enter the code shown on the TV</p><input id="code" class="code" inputmode="numeric" maxlength="6" placeholder="000000" value="${esc(code || "")}"><div style="height:12px"></div><button class="btn" id="join">Join</button></div>`;
+    $("#join").onclick = () => pair($("#code").value).catch(e => toast(e.message));
+    if (code && code.length === 6) pair(code).catch(e => toast(e.message));
+    return;
+  }
+  $("#tabs").classList.remove("hidden");
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+  paint();
+}
+
+function paint() {
+  if (!store.token) return;
+  const app = $("#app");
+  if (state && !singer() && tab !== "me") tab = "me";
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+  if (tab === "now") app.innerHTML = nowView();
+  else if (tab === "queue") app.innerHTML = queueView();
+  else if (tab === "me") app.innerHTML = meView();
+  else if (tab === "search") { if (!$("#q")) app.innerHTML = searchView(); else drawResults() }
+  bind();
+  const pal = state?.nowPlaying?.entry?.song?.palette;
+  if (pal?.length >= 3) { const r = document.documentElement.style; r.setProperty("--c1", pal[0]); r.setProperty("--c2", pal[1]); r.setProperty("--c3", pal[2]) }
+}
+
+function nowView() {
+  if (!state) return `<h1>Sing!</h1><p class="sub">Connecting to the Mac…</p>`;
+  const np = state.nowPlaying, e = np.entry, me = singer();
+  const mine = state.queue.findIndex(q => q.singers.some(s => s.id === store.singer));
+  return `<h1>Sing!</h1>
+  ${mine >= 0 ? `<div class="card up" style="margin:10px 0">${mine === 0 ? "You're up next! Get ready 🎤" : `You're up in ${mine + 1} songs`}</div>` : ""}
+  <div class="card"><div class="now">${e ? artImg(e.song, "art") : `<div class="art"></div>`}
+    <div class="grow"><div class="meta">${np.state === "playing" ? "NOW SINGING" : np.state.toUpperCase()}</div>
+    <div class="title" style="font-size:20px">${esc(e?.song.title || "Nothing playing")}</div>
+    <div class="meta">${esc(e ? (e.singers.map(s => s.name).join(" & ") || e.song.artist) : "Search a song and queue it")}</div></div></div>
+    ${e ? `<div class="lyric" id="lyric"></div><div class="bar"><div id="prog"></div></div>` : ""}
+  </div>
+  <h2>Up next</h2><div class="card">${state.queue.slice(0, 5).map(rowQueue).join("") || `<div class="empty">Nobody is queued. Be the first!</div>`}</div>
+  ${me ? "" : `<p class="sub">Pick your name in Me to queue songs.</p>`}`;
+}
+
+function rowQueue(q, i) {
+  const own = q.addedBy === store.padID;
+  return `<div class="row"><div style="width:22px;color:var(--sub);font-weight:700">${(i ?? 0) + 1}</div>${artImg(q.song)}
+    <div class="grow"><div class="title">${esc(q.song.title)}</div><div class="meta">${esc(q.singers.map(s => s.name).join(" & ") || q.song.artist)}</div></div>
+    ${q.estimatedStart ? `<span class="meta">${new Date(q.estimatedStart).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>` : ""}
+    ${own ? `<button class="x" data-remove="${q.id}" aria-label="Remove">✕</button>` : ""}</div>`;
+}
+
+function queueView() {
+  return `<h1>Queue</h1><div class="card">${state?.queue?.map(rowQueue).join("") || `<div class="empty">The queue is empty.</div>`}</div>`;
+}
+
+function searchView() {
+  return `<h1>Search</h1><input id="q" type="search" placeholder="Any song or artist" autocomplete="off"><div id="results"></div>`;
+}
+
+function drawResults() {
+  const el = $("#results"); if (!el) return;
+  const { songs, catalog } = lastResults;
+  el.innerHTML = (songs.length ? `<h2>In the library</h2><div class="card">${songs.map(s => `<div class="row" data-song="${s.id}">${artImg(s)}<div class="grow"><div class="title">${esc(s.title)}</div><div class="meta">${esc(s.artist)}</div></div><span class="pill ${s.readiness === "ready" ? "ok" : ""}">${s.readiness === "ready" ? "Ready" : "Preparing"}</span></div>`).join("")}</div>` : "")
+    + (catalog.length ? `<h2>Not in the library yet</h2><div class="card">${catalog.slice(0, 15).map(t => `<div class="row" data-cat="${esc(t.id)}">${t.artworkURL ? `<img class="art" src="${esc(t.artworkURL)}" alt="" loading="lazy">` : `<div class="art"></div>`}<div class="grow"><div class="title">${esc(t.title)}</div><div class="meta">${esc(t.artist)}</div></div><span class="pill">Request</span></div>`).join("")}</div>` : "")
+    || ($("#q")?.value ? `<div class="empty">Nothing found.</div>` : `<div class="empty">Type a song or an artist.</div>`);
+  bind();
+}
+
+function meView() {
+  const me = singer();
+  return `<h1>${me ? esc(me.name) : "Who are you?"}</h1><p class="sub">Pick your name so your songs and stats follow you.</p>
+  <div class="chips">${(state?.singers || []).map(s => `<button class="chip ${s.id === store.singer ? "on" : ""}" data-singer="${s.id}"><span class="dot" style="background:${esc(s.colorHex)}"></span>${esc(s.name)}</button>`).join("")}</div>
+  <div class="card"><p style="margin-top:0">New here?</p><input id="newName" placeholder="Your name" maxlength="24"><div style="height:10px"></div><button class="btn" id="create">I'm in</button></div>
+  <div style="height:16px"></div><button class="btn ghost" id="leave">Leave this party</button>`;
+}
+
+function bind() {
+  document.querySelectorAll("[data-remove]").forEach(b => b.onclick = () => send("remove", { entryID: b.dataset.remove }));
+  document.querySelectorAll("[data-singer]").forEach(b => b.onclick = () => { store.singer = Number(b.dataset.singer); tab = "search"; paint(); toast("Hi " + singer()?.name + "!") });
+  document.querySelectorAll("[data-song]").forEach(r => r.onclick = () => openSong(lastResults.songs.find(s => s.id == r.dataset.song)));
+  document.querySelectorAll("[data-cat]").forEach(r => r.onclick = () => openRequest(lastResults.catalog.find(t => t.id == r.dataset.cat)));
+  const create = $("#create");
+  if (create) create.onclick = async () => {
+    const name = $("#newName").value.trim(); if (!name) return;
+    try { const s = await api("/v1/singers", { method: "POST", body: JSON.stringify({ name, emoji: "" }) }); store.singer = s.id; if (!state.singers.some(x => x.id === s.id)) state.singers.push(s); tab = "search"; paint() } catch (e) { toast(e.message) }
+  };
+  const leave = $("#leave"); if (leave) leave.onclick = () => { store.token = null; ws?.close(); state = null; render() };
+  const q = $("#q");
+  if (q && !q._bound) {
+    q._bound = true;
+    q.oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(async () => {
+      if (!q.value.trim()) { lastResults = { songs: [], catalog: [] }; return drawResults() }
+      try { lastResults = await api("/v1/songs?q=" + encodeURIComponent(q.value)); drawResults() } catch (e) { toast(e.message) } }, 250) };
+    if (!lastResults.songs.length) api("/v1/suggestions?singer=" + (store.singer || "")).then(s => { if (!q.value) { lastResults = { songs: s.map(x => x.song), catalog: [] }; drawResults() } }).catch(() => {});
+  }
+}
+
+function openSheet(html) { $("#sheetBody").innerHTML = html; $("#sheet").classList.add("open") }
+function closeSheet() { $("#sheet").classList.remove("open") }
+$("#sheet").onclick = e => { if (e.target.id === "sheet") closeSheet() };
+
+function openSong(s) {
+  if (!s) return;
+  const picked = new Set(store.singer ? [store.singer] : []);
+  openSheet(`<div class="now">${artImg(s)}<div class="grow"><div class="title" style="font-size:20px">${esc(s.title)}</div><div class="meta">${esc(s.artist)} · ${fmt(s.durationMs)}</div></div></div>
+    <p class="sub">${s.isDuet ? "Duet: pick two singers" : "Who sings?"}</p>
+    <div class="chips">${state.singers.map(x => `<button class="chip ${picked.has(x.id) ? "on" : ""}" data-pick="${x.id}"><span class="dot" style="background:${esc(x.colorHex)}"></span>${esc(x.name)}</button>`).join("")}</div>
+    <button class="btn" id="queueIt">Add to the queue</button>`);
+  document.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => { const id = Number(b.dataset.pick); picked.has(id) ? picked.delete(id) : picked.add(id); b.classList.toggle("on") });
+  $("#queueIt").onclick = () => { send("enqueue", { songID: s.id, singerIDs: [...picked], playNext: false }); closeSheet(); toast(s.title + " is in the queue"); tab = "queue"; paint() };
+}
+
+function openRequest(t) {
+  if (!t) return;
+  openSheet(`<div class="now">${t.artworkURL ? `<img class="art" src="${esc(t.artworkURL)}" alt="">` : `<div class="art"></div>`}<div class="grow"><div class="title" style="font-size:20px">${esc(t.title)}</div><div class="meta">${esc(t.artist)}</div></div></div>
+    <p class="sub">This song is not on the Mac yet. Ask the host to add it.</p><button class="btn" id="req">Request this song</button>`);
+  $("#req").onclick = () => { send("request", { track: t, singerIDs: store.singer ? [store.singer] : [] }); closeSheet(); toast("Requested " + t.title) };
+}
+
+document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => { tab = b.dataset.tab; if (tab !== "search") lastResults = lastResults; $("#app").innerHTML = ""; paint() });
+
+setInterval(() => {
+  if (tab !== "now" || !state?.nowPlaying?.entry) return;
+  const ms = position(), el = $("#lyric"), bar = $("#prog");
+  if (bar) bar.style.width = Math.min(100, ms / state.nowPlaying.entry.song.durationMs * 100) + "%";
+  if (!el || !lyrics) return;
+  const t = ms / 1000; let i = -1;
+  for (let k = 0; k < lyrics.lines.length; k++) { if (lyrics.lines[k].start <= t + 0.2) i = k; else break }
+  const line = i >= 0 ? lyrics.lines[i].segments.map(s => s.text + (s.endsWord ? " " : "")).join("") : "♪";
+  const next = lyrics.lines[i + 1] ? lyrics.lines[i + 1].segments.map(s => s.text + (s.endsWord ? " " : "")).join("") : "";
+  const html = esc(line) + (next ? `<small>${esc(next)}</small>` : "");
+  if (el.innerHTML !== html) el.innerHTML = html;
+}, 200);
+
+render();
+connect();
+</script>
+</body>
+</html>

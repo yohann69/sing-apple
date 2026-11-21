@@ -187,7 +187,7 @@ struct QRScannerView: UIViewControllerRepresentable {
 
         func dataScanner(_ dataScanner: DataScannerViewController, didAdd addedItems: [RecognizedItem], allItems: [RecognizedItem]) {
             for item in addedItems {
-                if case .barcode(let b) = item, let s = b.payloadStringValue, let url = URL(string: s), url.scheme == "sing", !done {
+                if case .barcode(let b) = item, let s = b.payloadStringValue, let url = URL(string: s), ServerEndpoint.parse(joinURL: url) != nil, !done {
                     done = true
                     onURL(url)
                 }

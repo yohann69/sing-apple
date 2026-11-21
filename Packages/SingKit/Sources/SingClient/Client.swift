@@ -21,7 +21,7 @@ public struct ServerEndpoint: Codable, Sendable, Hashable, Identifiable {
 
     /// Parses `sing://host:port?code=123456&name=Mac`.
     public static func parse(joinURL: URL) -> (ServerEndpoint, code: String)? {
-        guard joinURL.scheme == "sing", let host = joinURL.host, let c = URLComponents(url: joinURL, resolvingAgainstBaseURL: false),
+        guard ["sing", "http", "https"].contains(joinURL.scheme ?? ""), let host = joinURL.host, let c = URLComponents(url: joinURL, resolvingAgainstBaseURL: false),
               let code = c.queryItems?.first(where: { $0.name == "code" })?.value else { return nil }
         let name = c.queryItems?.first(where: { $0.name == "name" })?.value ?? host
         return (ServerEndpoint(name: name, host: host, port: joinURL.port ?? SingProtocol.defaultPort), code)

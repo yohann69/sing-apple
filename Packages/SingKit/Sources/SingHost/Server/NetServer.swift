@@ -9,9 +9,10 @@ public struct HTTPRequest: Sendable {
     public var headers: [String: String]
     public var body: Data
 
+    /// Token from the Authorization header, or from `?token=` so plain <img> tags in the web remote work.
     public var bearer: String? {
-        guard let a = headers["authorization"], a.hasPrefix("Bearer ") else { return nil }
-        return String(a.dropFirst(7))
+        if let a = headers["authorization"], a.hasPrefix("Bearer ") { return String(a.dropFirst(7)) }
+        return query["token"]
     }
 
     static func parse(_ data: Data) -> (HTTPRequest, needed: Int)? {
