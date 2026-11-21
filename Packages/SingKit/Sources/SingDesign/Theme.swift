@@ -83,7 +83,12 @@ public struct SingTheme: Sendable, Equatable {
     }
 
     public func lyricFont(size: CGFloat) -> Font {
-        .system(size: size, weight: file.lyrics.weight == "heavy" ? .heavy : .bold, design: file.lyrics.design == "rounded" ? .rounded : .default)
+        let weight: Font.Weight = switch file.lyrics.weight {
+        case "heavy": .heavy
+        case "semibold": .semibold
+        default: .bold
+        }
+        return .system(size: size, weight: weight, design: file.lyrics.design == "rounded" ? .rounded : .default)
     }
 
     public static var presetIDs: [String] { SingThemeFile.bundled.presets.keys.sorted() }

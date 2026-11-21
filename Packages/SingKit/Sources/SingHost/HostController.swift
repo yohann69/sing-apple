@@ -33,7 +33,7 @@ public final class HostController: HostAPI {
     public private(set) var nowPlaying = NowPlaying()
     public private(set) var lyrics: Lyrics?
     public private(set) var pitchTrack: PitchTrack? {
-        didSet { displayPitch = pitchTrack?.simplified() }
+        didSet { displayPitch = pitchTrack.map { $0.version >= PitchTrack.currentVersion ? $0 : $0.simplified() } }
     }
     /// The trend shown on the TV; scoring keeps the detailed melody.
     public private(set) var displayPitch: PitchTrack?
@@ -143,6 +143,7 @@ public final class HostController: HostAPI {
         await loadRequests()
         await restoreQueue()
         startServer()
+        startWatching()
         tickTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
@@ -218,7 +219,49 @@ public final class HostController: HostAPI {
         if modelAvailable {
             await separation.enqueueBackground(songs.filter { $0.readiness != .ready }.map(\.id))
         }
+        await fulfillRequests()
         scheduleBroadcast()
+    }
+
+    // MARK: Watch folder
+
+    /// Audio files dropped in this folder are imported automatically (MAC-LIB-03).
+    public var watchFolder: URL? {
+        get { UserDefaults.standard.url(forKey: "watchFolder") }
+        set { UserDefaults.standard.set(newValue, forKey: "watchFolder"); startWatching() }
+    }
+    @ObservationIgnored var watchTask: Task<Void, Never>?
+    @ObservationIgnored var knownWatchFiles = Set<String>()
+
+    func startWatching() {
+        watchTask?.cancel()
+        guard let folder = watchFolder else { return }
+        knownWatchFiles = []
+        watchTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard let self else { return }
+                let files = LibraryStore.audioFiles(in: [folder]).filter { !self.knownWatchFiles.contains($0.path) }
+                let settled = files.filter { url in
+                    let m = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                    return Date.now.timeIntervalSince(m) > 3
+                }
+                guard !settled.isEmpty else { continue }
+                for f in settled { self.knownWatchFiles.insert(f.path) }
+                await self.importFiles(settled)
+            }
+        }
+    }
+
+    /// A requested song that arrives in the library is queued for the people who asked for it.
+    func fulfillRequests() async {
+        for r in requests {
+            let key = normalizeForMatch(r.track.title) + "|" + normalizeForMatch(Self.firstArtist(r.track.artist))
+            guard let song = songs.first(where: { normalizeForMatch($0.title) + "|" + normalizeForMatch(Self.firstArtist($0.artist)) == key || ($0.isrc != nil && $0.isrc == r.track.isrc) }) else { continue }
+            dismissRequest(r.id)
+            try? await enqueue(songID: song.id, singerIDs: r.singers.map(\.id), playNext: false, by: nil)
+            Task { await server?.broadcast(.toast(.init(message: "\(song.title) is now in the library and queued"))) }
+        }
     }
 
     func separationProgress(_ id: SongID, _ p: Double, _ r: Readiness) {
@@ -251,7 +294,10 @@ public final class HostController: HostAPI {
     public func refreshLyrics(_ id: SongID, force: Bool = false) async {
         guard let record = try? await library.song(id) else { return }
         if force { try? FileManager.default.removeItem(at: paths.lyrics(record.audioHash)); try? FileManager.default.removeItem(at: paths.songCache(record.audioHash).appendingPathComponent("align-failed")) }
+        let before = lyricsService.cached(record)?.kind
         guard let l = await lyricsService.resolve(record, refresh: force) else { return }
+        if force { try? FileManager.default.removeItem(at: paths.songCache(record.audioHash).appendingPathComponent("diarized")) }
+        if force || before != l.kind { try? FileManager.default.removeItem(at: paths.pitch(record.audioHash)) }
         if nowPlaying.entry?.song.id == id { lyrics = l.shifted(by: Double(record.lyricOffsetMs) / 1000) }
         if let i = songs.firstIndex(where: { $0.id == id }) {
             songs[i].lyricsKind = l.kind
@@ -263,10 +309,19 @@ public final class HostController: HostAPI {
     /// Reference melody from the cache, or extracted now from the vocal stem.
     func loadPitch(_ record: SongRecord) async -> PitchTrack? {
         let url = paths.pitch(record.audioHash)
-        if let d = try? Data(contentsOf: url), let t = try? JSONDecoder().decode(PitchTrack.self, from: d) { return t }
+        let crepe = paths.models.appendingPathComponent("crepe_full.mlmodelc")
+        let hasCrepe = FileManager.default.fileExists(atPath: crepe.path)
+        if let d = try? Data(contentsOf: url), let t = try? JSONDecoder().decode(PitchTrack.self, from: d),
+           t.version >= PitchTrack.currentVersion || !hasCrepe {
+            return t
+        }
         let vocals = paths.vocals(record.audioHash)
         guard FileManager.default.fileExists(atPath: vocals.path) else { return nil }
-        let track = await Task.detached(priority: .userInitiated) { try? MelodyExtractor.extract(vocals: vocals) }.value
+        let lyrics = lyricsService.cached(record)
+        let track = await Task.detached(priority: .userInitiated) { () -> PitchTrack? in
+            if hasCrepe, let ex = try? CrepeExtractor(modelURL: crepe), let t = try? ex.extract(vocals: vocals, lyrics: lyrics) { return t }
+            return try? MelodyExtractor.extract(vocals: vocals)
+        }.value
         if let track, let d = try? JSONEncoder().encode(track) { try? d.write(to: url) }
         return track
     }
@@ -292,9 +347,9 @@ public final class HostController: HostAPI {
         livePoints.removeAll { $0.time < t - 6 || $0.time > t + 0.5 }
         scoreKeeper.add(time: t, sungMidi: mic.livePitch.midi, level: mic.level)
         guard let sung = mic.livePitch.midi else { return }
-        let target = pitchTrack?.note(at: t)
-        let folded = target.map { PitchTrack.foldOctave(sung, toward: $0.midi) } ?? sung
-        let hit = target.map { abs(folded - $0.midi) < 1.0 } ?? false
+        let target = pitchTrack?.target(at: t)
+        let folded = target.map { PitchTrack.foldOctave(sung, toward: $0) } ?? sung
+        let hit = target.map { abs(folded - $0) < 1.0 } ?? false
         livePoints.append(LivePitchPoint(time: t, midi: folded, onTarget: hit))
         if target != nil {
             scoreFrames += 1
@@ -305,7 +360,7 @@ public final class HostController: HostAPI {
 
     func upgradeLyricsInBackground() async {
         for s in songs where s.readiness == .ready {
-            if (s.lyricsKind ?? .plain) < .word { await refreshLyrics(s.id) }
+            await refreshLyrics(s.id)
             if let r = try? await library.song(s.id) { _ = await loadPitch(r) }
         }
     }

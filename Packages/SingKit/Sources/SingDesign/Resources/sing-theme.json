@@ -47,8 +47,8 @@
   },
   "singers": ["#FF8A3D", "#4CC9F0", "#FFC145", "#7BE07B", "#B28DFF", "#FF6B9A", "#5EEAD4", "#F472B6"],
   "lyrics": {
-    "weight": "heavy",
-    "design": "rounded",
+    "weight": "bold",
+    "design": "default",
     "activeScale": 1.0,
     "previousScale": 0.48,
     "nextScale": 0.46,

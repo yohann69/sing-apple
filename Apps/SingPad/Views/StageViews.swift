@@ -3,88 +3,6 @@ import SingCore
 import SingDesign
 import SwiftUI
 
-/// iPad layout: always landscape, search always on the left, the stage on the right, no page scrolling.
-struct PadDashboard: View {
-    @Environment(PadModel.self) private var model
-    @Environment(\.singTheme) private var theme
-    @State private var page = "stage"
-    @State private var pickingSinger = false
-
-    var body: some View {
-        let np = model.state.nowPlaying
-        ZStack {
-            BlobBackground(colors: (np.entry?.song.paletteColors ?? theme.blobs).vivid(with: theme), base: theme.background, period: 34, dim: 0.42)
-            HStack(spacing: 0) {
-                SearchPanel()
-                    .frame(width: 400)
-                    .padding(.leading, 16)
-                    .padding(.vertical, 16)
-                VStack(spacing: 14) {
-                    topBar
-                    Group {
-                        switch page {
-                        case "stats": StatsView().scrollContentBackground(.hidden)
-                        case "settings": PadSettingsView().scrollContentBackground(.hidden)
-                        default: StagePage()
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .transition(.blurReplace)
-                }
-                .padding(16)
-            }
-        }
-        .foregroundStyle(.white)
-        .animation(.spring(response: 0.5, dampingFraction: 0.85), value: page)
-        .sheet(isPresented: $pickingSinger) { SingerPicker() }
-        .task {
-            try? await Task.sleep(for: .seconds(1))
-            if model.currentSinger == nil { pickingSinger = true }
-        }
-        .alert(item: Binding(get: { model.upNextAlert.map { MainTabs.AlertItem(u: $0) } }, set: { _ in model.upNextAlert = nil })) { item in
-            Alert(title: Text(item.u.songsAway == 1 ? "You're up next!" : "You're up in \(item.u.songsAway) songs"), message: Text("Get ready to sing."), dismissButton: .default(Text("OK")))
-        }
-    }
-
-    private var topBar: some View {
-        HStack(spacing: 12) {
-            GlassEffectContainer(spacing: 8) {
-                HStack(spacing: 4) {
-                    pageButton("stage", "Stage", "music.mic")
-                    pageButton("stats", "Stats", "chart.bar.xaxis")
-                    pageButton("settings", "Settings", "slider.horizontal.3")
-                }
-                .padding(4)
-                .glassEffect(.regular, in: .capsule)
-            }
-            Spacer()
-            if case .lost = model.connection {
-                Label("Reconnecting…", systemImage: "wifi.exclamationmark").font(.callout)
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .glassEffect(.regular.tint(.orange.opacity(0.35)), in: .capsule)
-            }
-            Button { pickingSinger = true } label: {
-                Group {
-                    if let s = model.currentSinger { SingerChip(s) } else { Label("Who's singing?", systemImage: "person.crop.circle.badge.plus") }
-                }
-                .padding(.horizontal, 14).padding(.vertical, 9)
-            }
-            .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .capsule)
-        }
-    }
-
-    private func pageButton(_ id: String, _ title: String, _ symbol: String) -> some View {
-        Button { page = id } label: {
-            Label(title, systemImage: symbol)
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 16).padding(.vertical, 9)
-        }
-        .buttonStyle(.plain)
-        .glassEffect(page == id ? .regular.tint(theme.accent.opacity(0.55)).interactive() : .identity, in: .capsule)
-    }
-}
-
 struct StagePage: View {
     @Environment(PadModel.self) private var model
     @Environment(\.singTheme) private var theme
@@ -102,7 +20,7 @@ struct StagePage: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(stateLabel(np.state)).font(.caption.weight(.bold)).textCase(.uppercase).opacity(0.75)
                     Text(np.entry?.song.title ?? "Nothing playing").font(.system(size: 30, weight: .heavy)).lineLimit(2)
-                    Text(np.entry?.song.artist ?? "Search on the left and queue a song").font(.title3).opacity(0.75).lineLimit(1)
+                    Text(np.entry?.song.artist ?? "Open Search to queue a song").font(.title3).opacity(0.75).lineLimit(1)
                     HStack { ForEach(np.entry?.singers ?? []) { SingerChip($0) } }
                     if np.state == .preparing, let id = np.entry?.song.id {
                         ProgressView(value: model.state.preparing[id] ?? 0) { Text("Preparing the instrumental…").font(.caption) }
@@ -195,7 +113,7 @@ struct UpNextList: View {
                 if !model.state.queue.isEmpty { Text("\(model.state.queue.count) songs").font(.caption).opacity(0.7) }
             }
             if model.state.queue.isEmpty {
-                Text("Nobody is queued. Pick a song on the left!").opacity(0.7)
+                Text("Nobody is queued. Open Search to pick a song!").opacity(0.7)
                 Spacer(minLength: 0)
             } else {
                 List {

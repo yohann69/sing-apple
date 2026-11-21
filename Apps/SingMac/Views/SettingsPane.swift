@@ -10,6 +10,7 @@ struct SettingsPane: View {
     @State private var outputs: [AudioDevice] = []
     @State private var inputs: [AudioDevice] = []
     @State private var apiStatus: String?
+    @State private var pickingFolder = false
 
     var body: some View {
         Form {
@@ -23,6 +24,15 @@ struct SettingsPane: View {
                     Slider(value: $host.lyricOffset, in: -0.5...0.5, step: 0.01)
                     Text("Move it if words light up before or after you hear them.").font(.caption).foregroundStyle(.secondary)
                 }
+            }
+            Section("Library") {
+                LabeledContent("Watch folder", value: host.watchFolder?.path ?? "None")
+                HStack {
+                    Button("Choose…") { pickingFolder = true }
+                    if host.watchFolder != nil { Button("Stop watching") { host.watchFolder = nil } }
+                }
+                Text("Music files saved in this folder are imported automatically. A requested song that arrives is queued for whoever asked for it.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             TVDisplaySettingsSections(tv: $host.settings.tv)
             Section("Audio") {
@@ -59,6 +69,9 @@ struct SettingsPane: View {
             }
         }
         .formStyle(.grouped)
+        .fileImporter(isPresented: $pickingFolder, allowedContentTypes: [.folder]) { r in
+            if case .success(let url) = r { host.watchFolder = url }
+        }
         .navigationTitle("Settings")
         .task {
             outputs = AudioDevices.outputs

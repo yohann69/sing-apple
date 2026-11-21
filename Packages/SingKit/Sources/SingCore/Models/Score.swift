@@ -73,7 +73,7 @@ public struct ScoreKeeper: Sendable {
             guard noteIdx < notes.count, notes[noteIdx].start <= f.time else { continue }
             targetFrames += 1
             guard let m = f.midi else { continue }
-            let target = notes[noteIdx].midi
+            let target = notes[noteIdx].midi(at: f.time)
             let folded = PitchTrack.foldOctave(m, toward: target)
             if abs(folded - target) < 1 { hits += 1 }
             perNote[noteIdx, default: []].append(folded - target)
