@@ -145,7 +145,7 @@ function render() {
     $("#tabs").classList.add("hidden");
     const code = new URLSearchParams(location.search).get("code");
     app.innerHTML = `<h1>Sing!</h1><p class="sub">Join the karaoke from your phone. No app needed.</p>
-      <div class="card"><p>Enter the code shown on the TV</p><input id="code" class="code" inputmode="numeric" maxlength="6" placeholder="000000" value="${esc(code || "")}"><div style="height:12px"></div><button class="btn" id="join">Join</button></div>`;
+      <p class="sub" style="text-align:right"><a style="color:var(--accent2)" href="/sing.apk">Get the Android app</a></p><div class="card"><p>Enter the code shown on the TV</p><input id="code" class="code" inputmode="numeric" maxlength="6" placeholder="000000" value="${esc(code || "")}"><div style="height:12px"></div><button class="btn" id="join">Join</button></div>`;
     $("#join").onclick = () => pair($("#code").value).catch(e => toast(e.message));
     if (code && code.length === 6) pair(code).catch(e => toast(e.message));
     return;
