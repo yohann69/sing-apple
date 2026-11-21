@@ -70,7 +70,12 @@ public struct SingAPIClient: Sendable {
         return try await get("v1/songs", query: items)
     }
 
-    public func lyrics(_ id: SongID) async throws -> Lyrics { try await get("v1/songs/\(id)/lyrics") }
+    public func lyrics(_ id: SongID, translateTo: String? = nil) async throws -> Lyrics {
+        try await get("v1/songs/\(id)/lyrics", query: translateTo.map { [URLQueryItem(name: "translate", value: $0)] } ?? [])
+    }
+
+    public struct Language: Codable, Sendable, Hashable { public var code: String; public var name: String }
+    public func translationLanguages() async throws -> [Language] { try await get("v1/translation/languages") }
     public func singers() async throws -> [Singer] { try await get("v1/singers") }
     public func createSinger(name: String, emoji: String?) async throws -> Singer {
         try await send("v1/singers", method: "POST", body: ["name": name, "emoji": emoji ?? ""])

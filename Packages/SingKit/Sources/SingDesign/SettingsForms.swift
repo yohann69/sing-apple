@@ -2,11 +2,19 @@ import SwiftUI
 import SingCore
 
 /// The "TV display" settings, shared by the Mac and the pads so every element can be switched on its own.
+public struct LanguageOption: Hashable, Sendable {
+    public var code: String
+    public var name: String
+    public init(code: String, name: String) { self.code = code; self.name = name }
+}
+
 public struct TVDisplaySettingsSections: View {
     @Binding var tv: TVDisplaySettings
+    var languages: [LanguageOption]
 
-    public init(tv: Binding<TVDisplaySettings>) {
+    public init(tv: Binding<TVDisplaySettings>, languages: [LanguageOption] = []) {
         _tv = tv
+        self.languages = languages
     }
 
     public var body: some View {
@@ -15,7 +23,13 @@ public struct TVDisplaySettingsSections: View {
             Toggle("Next line", isOn: $tv.showNextLine)
             Toggle("Backing vocals", isOn: $tv.showBackingVocals)
             Toggle("Singer names", isOn: $tv.showSingerNames)
-            Toggle("Translation line", isOn: $tv.showTranslation)
+            Toggle("Translation line (on-device AI)", isOn: $tv.showTranslation)
+            if tv.showTranslation {
+                Picker("Translate the TV into", selection: Binding(get: { tv.translationLanguage ?? "" }, set: { tv.translationLanguage = $0.isEmpty ? nil : $0 })) {
+                    Text("Choose a language").tag("")
+                    ForEach(languages, id: \.code) { l in Text(l.name).tag(l.code) }
+                }
+            }
             Toggle("Countdown dots before singing", isOn: $tv.showCountdown)
             Toggle("Word fill on line-synced lyrics", isOn: $tv.estimatedWordWipe)
             VStack(alignment: .leading) {

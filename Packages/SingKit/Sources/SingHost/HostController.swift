@@ -544,6 +544,8 @@ public final class HostController: HostAPI {
         if lyrics == nil { lyrics = await lyricsService.resolve(record) }
         pitchTrack = await loadPitch(record)
         resetLiveScore()
+        tvTranslation = nil
+        Task { await refreshTVTranslation() }
         playback.guideVocal = record.defaultGuideVocal ?? settings.playback.defaultGuideVocal
         nowPlaying.guideVocal = playback.guideVocal
         if settings.playback.countdownBetweenSongs {
@@ -795,6 +797,7 @@ public final class HostController: HostAPI {
 
     func applySettings() {
         servicesBox.value = settings.services
+        Task { await refreshTVTranslation() }
         playback.volume = settings.playback.musicVolume
         mic.gain = settings.playback.micGain
         mic.reverbMix = settings.playback.micReverb
@@ -920,10 +923,52 @@ public final class HostController: HostAPI {
         return try? Data(contentsOf: paths.artwork(s.audioHash))
     }
 
-    public func lyrics(songID: SongID) async -> Lyrics? {
-        if nowPlaying.entry?.song.id == songID, let lyrics { return lyrics }
+    public func lyrics(songID: SongID, translateTo: String?) async -> Lyrics? {
         guard let s = try? await library.song(songID) else { return nil }
-        return await lyricsService.resolve(s)
+        let base: Lyrics? = nowPlaying.entry?.song.id == songID ? lyrics : await lyricsService.resolve(s)
+        guard let base, let lang = translateTo else { return base }
+        return await translated(base, song: s, to: lang) ?? base
+    }
+
+    public func translationLanguages() async -> [TranslationLanguage] { await LyricsTranslator.languages() }
+
+    /// A language pair macOS must download first; the Mac window asks the system to fetch it.
+    public private(set) var pendingTranslationDownload: (source: String, target: String)?
+    public private(set) var tvTranslation: Lyrics?
+
+    func translated(_ l: Lyrics, song: SongRecord, to lang: String) async -> Lyrics? {
+        let url = paths.songCache(song.audioHash).appendingPathComponent("translation-\(lang).json")
+        if let d = try? Data(contentsOf: url), let cached = try? JSONDecoder().decode(Lyrics.self, from: d), cached.lines.count == l.lines.count {
+            return Self.mergeTranslation(cached, into: l)
+        }
+        do {
+            let out = try await LyricsTranslator.translate(l, to: lang)
+            if let d = try? JSONEncoder().encode(out) { try? d.write(to: url) }
+            return out
+        } catch LyricsTranslator.Failure.needsDownload(let s, let t) {
+            pendingTranslationDownload = (s, t)
+            return nil
+        } catch {
+            return nil
+        }
+    }
+
+    static func mergeTranslation(_ t: Lyrics, into l: Lyrics) -> Lyrics {
+        var out = l
+        for i in out.lines.indices where i < t.lines.count { out.lines[i].translation = t.lines[i].translation }
+        return out
+    }
+
+    /// Called by the Mac window once macOS has downloaded the language pair.
+    public func translationDownloadFinished() {
+        pendingTranslationDownload = nil
+        Task { await refreshTVTranslation() }
+    }
+
+    func refreshTVTranslation() async {
+        guard settings.tv.showTranslation, let lang = settings.tv.translationLanguage, let l = lyrics,
+              let id = nowPlaying.entry?.song.id, let s = try? await library.song(id) else { tvTranslation = nil; return }
+        tvTranslation = await translated(l, song: s, to: lang)
     }
 
     public func singers() async -> [Singer] { singers }

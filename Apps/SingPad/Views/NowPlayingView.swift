@@ -88,6 +88,9 @@ struct LyricsCard: View {
                     } else {
                         Text("♪").font(theme.lyricFont(size: 26)).opacity(0.6)
                     }
+                    if i >= 0, let tr = lyrics.lines[i].translation {
+                        Text(tr).font(.system(size: 18, weight: .semibold)).italic().opacity(0.75)
+                    }
                     if lyrics.lines.indices.contains(i + 1) {
                         Text(lyrics.lines[i + 1].text).font(theme.lyricFont(size: 18)).opacity(0.5)
                     }

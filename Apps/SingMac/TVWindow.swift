@@ -71,7 +71,7 @@ struct TVRootView: View {
         let np = host.nowPlaying
         var model = TVStageModel(
             nowPlaying: np,
-            lyrics: host.lyrics,
+            lyrics: host.tvTranslation ?? host.lyrics,
             upNext: host.queue.entries.first,
             settings: host.settings.tv,
             artwork: artwork.image(np.entry?.song.id, host: host),

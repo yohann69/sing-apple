@@ -15,7 +15,8 @@ public protocol HostAPI: AnyObject, Sendable {
     func authenticate(token: String) async -> PadIdentity?
     func search(_ q: String, filters: SearchFilters) async throws -> SearchResponse
     func artwork(songID: SongID) async -> Data?
-    func lyrics(songID: SongID) async -> Lyrics?
+    func lyrics(songID: SongID, translateTo: String?) async -> Lyrics?
+    func translationLanguages() async -> [TranslationLanguage]
     func singers() async -> [Singer]
     func createSinger(name: String, emoji: String?, pad: PadIdentity) async throws -> Singer
     func stats(_ period: StatsPeriod) async throws -> StatsResponse
@@ -187,8 +188,10 @@ public final class SingServer: Sendable {
                 guard let id = Int64(p[1]), let data = await api.artwork(songID: id) else { return error(404, "notFound", "No artwork") }
                 return HTTPResponse(contentType: "image/jpeg", body: data, extraHeaders: ["Cache-Control": "max-age=86400"])
             case ("GET", let p) where p.count == 3 && p[0] == "songs" && p[2] == "lyrics":
-                guard let id = Int64(p[1]), let l = await api.lyrics(songID: id) else { return error(404, "notFound", "No lyrics") }
+                guard let id = Int64(p[1]), let l = await api.lyrics(songID: id, translateTo: req.query["translate"].flatMap { $0.isEmpty ? nil : $0 }) else { return error(404, "notFound", "No lyrics") }
                 return json(l)
+            case ("GET", ["translation", "languages"]):
+                return json(await api.translationLanguages())
             case ("GET", ["singers"]):
                 return json(await api.singers())
             case ("POST", ["singers"]):
