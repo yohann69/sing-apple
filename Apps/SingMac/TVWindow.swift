@@ -67,7 +67,7 @@ struct TVRootView: View {
     var artwork: ArtworkCache
     var theme: () -> SingTheme
 
-    var body: some View {
+    func makeModel() -> TVStageModel {
         let np = host.nowPlaying
         var model = TVStageModel(
             nowPlaying: np,
@@ -83,7 +83,13 @@ struct TVRootView: View {
             queuePreview: host.queue.entries
         )
         model.pitch = host.pitchTrack
-        model.live = { (host.livePoints, host.liveScore) }
+        model.live = { [host] in (host.livePoints, host.liveScore) }
+        return model
+    }
+
+    var body: some View {
+        let np = host.nowPlaying
+        let model = makeModel()
         TVStageView(model: model) { host.lyricTime }
             .environment(\.singTheme, theme())
             .animation(.easeInOut(duration: 0.8), value: np.state)

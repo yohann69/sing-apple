@@ -43,6 +43,8 @@ struct LibraryPane: View {
             if let id = ids.first, let song = host.songs.first(where: { $0.id == id }) {
                 Button("Queue…") { queueFor = song }
                 Button("Play Next") { Task { try? await host.enqueue(songID: id, singerIDs: [], playNext: true, by: nil) } }
+                Divider()
+                Button("Find Lyrics Again (providers, then AI timing)") { Task { await host.refreshLyrics(id, force: true) } }
             }
         } primaryAction: { ids in
             if let id = ids.first, let song = host.songs.first(where: { $0.id == id }) { queueFor = song }

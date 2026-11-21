@@ -134,6 +134,7 @@ public struct ServiceSettings: Codable, Sendable, Hashable {
     public var neteaseEnabled = true
     public var kugouEnabled = true
     public var aiAlignmentEnabled = true
+    public var catalogSearchEnabled = true
     public var timeoutSeconds: Double = 6
 
     public init() {}
@@ -148,6 +149,7 @@ public struct ServiceSettings: Codable, Sendable, Hashable {
         neteaseEnabled = v(.neteaseEnabled, d.neteaseEnabled)
         kugouEnabled = v(.kugouEnabled, d.kugouEnabled)
         aiAlignmentEnabled = v(.aiAlignmentEnabled, d.aiAlignmentEnabled)
+        catalogSearchEnabled = v(.catalogSearchEnabled, d.catalogSearchEnabled)
         timeoutSeconds = v(.timeoutSeconds, d.timeoutSeconds)
     }
 }

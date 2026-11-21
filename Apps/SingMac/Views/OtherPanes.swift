@@ -31,6 +31,25 @@ struct QueuePane: View {
                 guard let f = from.first else { return }
                 try? host.moveInQueue(entries[f].id, to: to > f ? to - 1 : to)
             }
+            if !host.requests.isEmpty {
+                Section("Requested, not in your library") {
+                    ForEach(host.requests) { r in
+                        HStack(spacing: 12) {
+                            AsyncImage(url: r.track.artworkURL.flatMap(URL.init(string:))) { $0.resizable().scaledToFill() } placeholder: { Color.gray.opacity(0.2) }
+                                .frame(width: 36, height: 36).clipShape(RoundedRectangle(cornerRadius: 6))
+                            VStack(alignment: .leading) {
+                                Text(r.track.title).fontWeight(.semibold)
+                                Text("\(r.track.artist) · \(r.track.sources.joined(separator: ", "))").foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            HStack { ForEach(r.singers) { SingerChip($0, compact: true) } }
+                            Text("\(r.votes) ♥").monospacedDigit().foregroundStyle(.secondary)
+                            Button { host.dismissRequest(r.id) } label: { Image(systemName: "checkmark.circle") }
+                                .buttonStyle(.borderless).help("Mark as handled")
+                        }
+                    }
+                }
+            }
         }
         .overlay {
             if entries.isEmpty { ContentUnavailableView("The queue is empty", systemImage: "list.number", description: Text("Songs queued from the library or from pads show up here.")) }

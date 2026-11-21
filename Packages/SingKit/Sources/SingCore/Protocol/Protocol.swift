@@ -74,10 +74,20 @@ public struct PairResponse: Codable, Sendable {
 public struct SearchResponse: Codable, Sendable {
     public var songs: [SongSummary]
     public var total: Int
+    /// Songs found in public catalogs that are not in the library yet.
+    public var catalog: [CatalogTrack]
 
-    public init(songs: [SongSummary], total: Int) {
+    public init(songs: [SongSummary], total: Int, catalog: [CatalogTrack] = []) {
         self.songs = songs
         self.total = total
+        self.catalog = catalog
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        songs = try c.decode([SongSummary].self, forKey: .songs)
+        total = try c.decode(Int.self, forKey: .total)
+        catalog = (try? c.decode([CatalogTrack].self, forKey: .catalog)) ?? []
     }
 }
 
@@ -116,6 +126,7 @@ public struct LiveState: Codable, Sendable, Hashable {
     public var settings: SingSettings
     public var singers: [Singer]
     public var session: SessionInfo?
+    public var requests: [SongRequest] = []
     /// Separation progress keyed by song id as a string, so JSON keeps an object.
     public var preparingByID: [String: Double]
 
@@ -123,7 +134,8 @@ public struct LiveState: Codable, Sendable, Hashable {
         Dictionary(uniqueKeysWithValues: preparingByID.compactMap { k, v in SongID(k).map { ($0, v) } })
     }
 
-    public init(nowPlaying: NowPlaying = NowPlaying(), queue: [QueueEntry] = [], settings: SingSettings = SingSettings(), singers: [Singer] = [], session: SessionInfo? = nil, preparing: [SongID: Double] = [:]) {
+    public init(nowPlaying: NowPlaying = NowPlaying(), queue: [QueueEntry] = [], settings: SingSettings = SingSettings(), singers: [Singer] = [], session: SessionInfo? = nil, preparing: [SongID: Double] = [:], requests: [SongRequest] = []) {
+        self.requests = requests
         self.nowPlaying = nowPlaying
         self.queue = queue
         self.settings = settings
@@ -216,10 +228,14 @@ public enum ClientMessage: Sendable {
     case seek(positionMs: Int)
     case setGuideVocal(Double)
     case updateSettings(SingSettings)
+    case request(Request)
+    case dismissRequest(id: String)
     case ping
 
     public struct Enqueue: Codable, Sendable { public var songID: SongID; public var singerIDs: [SingerID]; public var playNext: Bool
         public init(songID: SongID, singerIDs: [SingerID], playNext: Bool = false) { self.songID = songID; self.singerIDs = singerIDs; self.playNext = playNext } }
+    public struct Request: Codable, Sendable { public var track: CatalogTrack; public var singerIDs: [SingerID]
+        public init(track: CatalogTrack, singerIDs: [SingerID]) { self.track = track; self.singerIDs = singerIDs } }
     public struct Move: Codable, Sendable { public var entryID: String; public var toIndex: Int
         public init(entryID: String, toIndex: Int) { self.entryID = entryID; self.toIndex = toIndex } }
     private struct EntryRef: Codable { var entryID: String }
@@ -243,6 +259,8 @@ extension ClientMessage: Codable {
         case "seek": self = .seek(positionMs: try c.decode(Seek.self, forKey: .data).positionMs)
         case "setGuideVocal": self = .setGuideVocal(try c.decode(Value.self, forKey: .data).value)
         case "updateSettings": self = .updateSettings(try c.decode(SingSettings.self, forKey: .data))
+        case "request": self = .request(try c.decode(Request.self, forKey: .data))
+        case "dismissRequest": self = .dismissRequest(id: try c.decode(EntryRef.self, forKey: .data).entryID)
         case "ping": self = .ping
         case let other: throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "unknown type \(other)")
         }
@@ -259,6 +277,8 @@ extension ClientMessage: Codable {
         case .seek(let v): try c.encode("seek", forKey: .type); try c.encode(Seek(positionMs: v), forKey: .data)
         case .setGuideVocal(let v): try c.encode("setGuideVocal", forKey: .type); try c.encode(Value(value: v), forKey: .data)
         case .updateSettings(let v): try c.encode("updateSettings", forKey: .type); try c.encode(v, forKey: .data)
+        case .request(let v): try c.encode("request", forKey: .type); try c.encode(v, forKey: .data)
+        case .dismissRequest(let id): try c.encode("dismissRequest", forKey: .type); try c.encode(EntryRef(entryID: id), forKey: .data)
         case .ping: try c.encode("ping", forKey: .type)
         }
     }

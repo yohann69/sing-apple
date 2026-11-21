@@ -31,9 +31,6 @@ struct MainTabs: View {
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
-        .tabViewBottomAccessory {
-            MiniPlayer()
-        }
         .sheet(isPresented: $pickingSinger) { SingerPicker() }
         .task {
             if model.currentSinger == nil {

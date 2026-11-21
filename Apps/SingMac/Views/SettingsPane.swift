@@ -39,7 +39,11 @@ struct SettingsPane: View {
             Section("Lyrics sources") {
                 Toggle("Sing lyrics database", isOn: $host.settings.services.singAPIEnabled)
                 TextField("Sing API address", text: $host.settings.services.singAPIBase)
-                Toggle("LRCLIB (free, line synced)", isOn: $host.settings.services.lrclibEnabled)
+                Toggle("NetEase (word synced)", isOn: $host.settings.services.neteaseEnabled)
+                Toggle("Kugou (word synced)", isOn: $host.settings.services.kugouEnabled)
+                Toggle("LRCLIB (line synced)", isOn: $host.settings.services.lrclibEnabled)
+                Toggle("Word timing with on-device AI when only line timing exists", isOn: $host.settings.services.aiAlignmentEnabled)
+                Toggle("Search Apple Music and Deezer catalogs from the pads", isOn: $host.settings.services.catalogSearchEnabled)
                 HStack {
                     Button("Test connection") { testAPI() }
                     if let apiStatus { Text(apiStatus).foregroundStyle(.secondary) }

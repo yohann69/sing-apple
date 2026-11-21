@@ -134,6 +134,7 @@ public final class HostController: HostAPI {
         }
         await reloadLibrary()
         await reloadSingers()
+        await loadRequests()
         await restoreQueue()
         startServer()
         tickTask = Task { [weak self] in
@@ -295,8 +296,9 @@ public final class HostController: HostAPI {
     }
 
     func upgradeLyricsInBackground() async {
-        for s in songs where s.readiness == .ready && (s.lyricsKind ?? .plain) < .word {
-            await refreshLyrics(s.id)
+        for s in songs where s.readiness == .ready {
+            if (s.lyricsKind ?? .plain) < .word { await refreshLyrics(s.id) }
+            if let r = try? await library.song(s.id) { _ = await loadPitch(r) }
         }
     }
 
@@ -646,7 +648,7 @@ public final class HostController: HostAPI {
         return LiveState(
             nowPlaying: np,
             queue: queue.withEstimates(remainingCurrent: max(0, playback.duration - playback.position)),
-            settings: settings, singers: singers, session: session, preparing: preparing
+            settings: settings, singers: singers, session: session, preparing: preparing, requests: requests
         )
     }
 
@@ -700,7 +702,48 @@ public final class HostController: HostAPI {
     public func search(_ q: String, filters: SearchFilters) async throws -> SearchResponse {
         let found = try await library.search(q, filters: filters)
         let mapped = found.map { summary($0) }
-        return SearchResponse(songs: mapped, total: mapped.count)
+        guard settings.services.catalogSearchEnabled, !filters.readyOnly, !q.isEmpty else {
+            return SearchResponse(songs: mapped, total: mapped.count)
+        }
+        let owned = Set(songs.map { normalizeForMatch($0.title) + "|" + normalizeForMatch(Self.firstArtist($0.artist)) })
+        let isrcs = Set(songs.compactMap(\.isrc))
+        let catalog = await CatalogSearch.search(q).filter { t in
+            !(t.isrc.map(isrcs.contains) ?? false) && !owned.contains(normalizeForMatch(t.title) + "|" + normalizeForMatch(Self.firstArtist(t.artist)))
+        }
+        return SearchResponse(songs: mapped, total: mapped.count, catalog: catalog)
+    }
+
+    static func firstArtist(_ a: String) -> String {
+        a.components(separatedBy: CharacterSet(charactersIn: ",&;")).first?.trimmingCharacters(in: .whitespaces) ?? a
+    }
+
+    public private(set) var requests: [SongRequest] = []
+
+    func loadRequests() async {
+        let stored = try? await database.writer.read { try SettingRecord.fetchOne($0, key: "requests") }
+        requests = stored.flatMap { try? SingProtocol.decoder().decode([SongRequest].self, from: Data($0.json.utf8)) } ?? []
+    }
+
+    func saveRequests() {
+        guard let data = try? SingProtocol.encoder().encode(requests) else { return }
+        let json = String(decoding: data, as: UTF8.self)
+        Task { try? await database.writer.write { db in try SettingRecord(key: "requests", json: json).save(db) } }
+        scheduleBroadcast()
+    }
+
+    public func addRequest(_ track: CatalogTrack, singerIDs: [SingerID]) {
+        if let i = requests.firstIndex(where: { $0.track.id == track.id }) {
+            requests[i].votes += 1
+            for s in singers where singerIDs.contains(s.id) && !requests[i].singers.contains(s) { requests[i].singers.append(s) }
+        } else {
+            requests.append(SongRequest(track: track, singers: singers.filter { singerIDs.contains($0.id) }))
+        }
+        saveRequests()
+    }
+
+    public func dismissRequest(_ id: String) {
+        requests.removeAll { $0.id == id }
+        saveRequests()
     }
 
     public func artwork(songID: SongID) async -> Data? {
@@ -765,6 +808,11 @@ public final class HostController: HostAPI {
             var incoming = s
             incoming.services = settings.services
             settings = incoming
+        case .request(let r):
+            addRequest(r.track, singerIDs: r.singerIDs)
+        case .dismissRequest(let id):
+            guard host else { throw QueueError.notAllowed }
+            dismissRequest(id)
         case .ping, .auth:
             break
         }
