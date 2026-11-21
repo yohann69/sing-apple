@@ -1,0 +1,63 @@
+import AppKit
+import SwiftUI
+import Testing
+@testable import SingCore
+@testable import SingDesign
+
+private let outDir = ProcessInfo.processInfo.environment["SING_SNAPSHOTS"] ?? ""
+
+@MainActor
+@Suite(.enabled(if: !outDir.isEmpty))
+struct SnapshotTests {
+    func line(_ id: Int, _ text: String, _ start: Double, agent: String? = nil, bg: String? = nil) -> LyricLine {
+        let words = text.split(separator: " ").map(String.init)
+        let segs = WordTimingEstimator.segments(words: words, start: start, end: start + 3)
+        let bgSegs = bg.map { WordTimingEstimator.segments(words: $0.split(separator: " ").map(String.init), start: start + 1, end: start + 3) } ?? []
+        return LyricLine(id: id, start: start, end: start + 3, agent: agent, segments: segs, background: bgSegs)
+    }
+
+    func render(_ name: String, _ model: TVStageModel, time: Double) throws {
+        let view = TVStageView(model: model) { time }
+            .environment(\.singTheme, .ember)
+            .frame(width: 1920, height: 1080)
+        let r = ImageRenderer(content: view)
+        r.scale = 1
+        guard let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff), let png = rep.representation(using: .png, properties: [:]) else {
+            Issue.record("render failed"); return
+        }
+        try png.write(to: URL(fileURLWithPath: outDir).appendingPathComponent("\(name).png"))
+    }
+
+    @Test func tvScreens() throws {
+        let lea = Singer(id: 1, name: "Léa", colorHex: "#FF8A3D")
+        let tom = Singer(id: 2, name: "Tom", colorHex: "#4CC9F0")
+        let song = SongSummary(id: 1, title: "Neon Harbor", artist: "The Paper Lanterns", durationMs: 200_000, readiness: .ready, palette: ["#C1ADB5", "#4B6EAA", "#B28681", "#E0D2D5"])
+        let solo = Lyrics(kind: .word, source: .manual, lines: [
+            line(0, "We kept the lights on for the ships", 10),
+            line(1, "Every window whispers your name tonight", 13.2, bg: "your name, your name"),
+            line(2, "And I answer from the other side", 16.4),
+        ])
+        let entry = QueueEntry(song: song, singers: [lea])
+        let next = QueueEntry(song: SongSummary(id: 2, title: "Paper Moon", artist: "Someone", durationMs: 180_000), singers: [tom])
+        var np = NowPlaying(entry: entry, state: .playing)
+        var model = TVStageModel(nowPlaying: np, lyrics: solo, upNext: next, settings: TVDisplaySettings(), artwork: nil, joinURL: "sing://192.168.1.2:47800?code=123456", guestCode: "123456", preparingProgress: 0.42, countdownEnd: nil, duration: 200, queuePreview: [next])
+        try render("tv-solo", model, time: 14.6)
+
+        let duet = Lyrics(kind: .word, source: .manual, agents: [Agent(id: "v1"), Agent(id: "v2")], lines: [
+            line(0, "Every window whispers your name tonight", 13.2, agent: "v1"),
+            line(1, "And I answer from the other side", 16.4, agent: "v2"),
+        ])
+        model.lyrics = duet
+        np.entry = QueueEntry(song: song, singers: [lea, tom])
+        model.nowPlaying = np
+        try render("tv-duet", model, time: 17.5)
+
+        model.nowPlaying.state = .idle
+        try render("tv-idle", model, time: 0)
+        model.nowPlaying.state = .preparing
+        try render("tv-preparing", model, time: 0)
+        model.nowPlaying.state = .playing
+        model.lyrics = solo
+        try render("tv-gap", model, time: 8.5)
+    }
+}

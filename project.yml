@@ -1,0 +1,84 @@
+name: Sing
+options:
+  bundleIdPrefix: io.github.yohann69.sing
+  deploymentTarget:
+    macOS: "26.0"
+    iOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    OTHER_SWIFT_FLAGS: "-Xfrontend -disable-dynamic-actor-isolation"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+packages:
+  SingKit:
+    path: Packages/SingKit
+targets:
+  SingMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: Apps/SingMac
+    dependencies:
+      - package: SingKit
+        product: SingCore
+      - package: SingKit
+        product: SingDesign
+      - package: SingKit
+        product: SingHost
+    info:
+      path: Apps/SingMac/Info.plist
+      properties:
+        CFBundleDisplayName: Sing!
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.music
+        NSMicrophoneUsageDescription: Sing! uses the microphone so singers hear themselves through the speakers.
+        NSLocalNetworkUsageDescription: Sing! talks to the iPads and phones in the room that control the karaoke.
+        NSBonjourServices: [_sing._tcp]
+    settings:
+      base:
+        PRODUCT_NAME: Sing
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.yohann69.sing.mac
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        ENABLE_HARDENED_RUNTIME: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  SingPad:
+    type: application
+    platform: iOS
+    sources:
+      - path: Apps/SingPad
+    dependencies:
+      - package: SingKit
+        product: SingCore
+      - package: SingKit
+        product: SingDesign
+      - package: SingKit
+        product: SingClient
+    info:
+      path: Apps/SingPad/Info.plist
+      properties:
+        CFBundleDisplayName: Sing!
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight, UIInterfaceOrientationPortraitUpsideDown]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        NSLocalNetworkUsageDescription: Sing! finds and controls the karaoke Mac on your network.
+        NSBonjourServices: [_sing._tcp]
+        NSCameraUsageDescription: Scan the QR code on the TV to join the party.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+        CFBundleURLTypes:
+          - CFBundleURLName: io.github.yohann69.sing.join
+            CFBundleURLSchemes: [sing]
+    settings:
+      base:
+        PRODUCT_NAME: Sing
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.yohann69.sing.pad
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

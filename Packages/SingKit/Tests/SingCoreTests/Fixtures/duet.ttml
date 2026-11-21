@@ -1,0 +1,8 @@
+<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" itunes:timing="Word" xml:lang="en">
+<head><metadata><ttm:agent type="person" xml:id="v1"><ttm:name>Lea</ttm:name></ttm:agent><ttm:agent type="person" xml:id="v2"/><ttm:agent type="group" xml:id="v1000"/>
+<iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal"><translations><translation type="replacement" xml:lang="fr"><text for="L1">Chaque fenêtre</text></translation></translations></iTunesMetadata></metadata></head>
+<body dur="20.000"><div begin="1.000" end="12.000" itunes:songPart="Verse">
+<p begin="1.000" end="3.500" itunes:key="L1" ttm:agent="v1"><span begin="1.000" end="1.400">Ev</span><span begin="1.400" end="1.800">ery</span> <span begin="1.900" end="2.600">window</span> <span begin="2.700" end="3.500">glows</span><span ttm:role="x-bg"><span begin="3.000" end="3.300">(glows</span> <span begin="3.300" end="3.500">bright)</span></span></p>
+<p begin="00:04.000" end="00:06.000" itunes:key="L2" ttm:agent="v2"><span begin="00:04.000" end="00:04.500">And</span> <span begin="00:04.600" end="00:06.000">answer</span></p>
+<p begin="0:00:07.000" end="0:00:09.000" itunes:key="L3" ttm:agent="v1000"><span begin="7.000" end="9.000">Together</span></p>
+</div></body></tt>
