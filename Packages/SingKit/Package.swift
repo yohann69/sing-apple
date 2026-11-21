@@ -28,6 +28,7 @@ let package = Package(
             ]
         ),
         .testTarget(name: "SingCoreTests", dependencies: ["SingCore"], resources: [.copy("Fixtures")]),
+        .testTarget(name: "SingDesignTests", dependencies: ["SingDesign"]),
         .testTarget(name: "SingHostTests", dependencies: ["SingHost", "SingClient"], resources: [.copy("Fixtures")]),
     ]
 )

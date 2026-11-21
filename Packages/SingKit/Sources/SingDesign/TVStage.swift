@@ -301,7 +301,7 @@ struct LyricsColumn: View {
     private func staticLine(_ line: LyricLine, size: CGFloat, opacity: Double, blur: CGFloat) -> some View {
         let align = alignment(line)
         return VStack(alignment: align, spacing: 8 * scale) {
-            label(line, size: size).opacity(0.8)
+            if lyrics.isDuet { label(line, size: size).opacity(0.8) }
             Text(line.text)
                 .font(theme.lyricFont(size: size))
                 .multilineTextAlignment(align == .trailing ? .trailing : .leading)

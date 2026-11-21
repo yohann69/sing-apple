@@ -137,13 +137,13 @@ struct WordView: View {
                 Text(text)
                     .font(font)
                     .foregroundStyle(sung)
-                    .shadow(color: glow.opacity(progress > 0 ? 0.45 : 0), radius: 18)
                     .mask(alignment: .leading) {
                         GeometryReader { g in
                             LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.85), .init(color: .clear, location: 1)], startPoint: .leading, endPoint: .trailing)
                                 .frame(width: g.size.width * 1.15 * progress + (progress >= 1 ? 40 : 0))
                         }
                     }
+                    .shadow(color: glow.opacity(progress > 0 ? 0.4 : 0), radius: 14)
             }
             .offset(y: active ? -3 : (progress >= 1 ? -1 : 0))
             .animation(.spring(response: 0.35, dampingFraction: 0.7), value: active)
