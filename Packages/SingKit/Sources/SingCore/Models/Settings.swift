@@ -6,6 +6,7 @@ public struct SingSettings: Codable, Sendable, Hashable {
     public var playback = PlaybackSettings()
     public var queue = QueueSettings()
     public var theme = ThemeSettings()
+    public var services = ServiceSettings()
 
     public init() {}
 
@@ -15,6 +16,7 @@ public struct SingSettings: Codable, Sendable, Hashable {
         playback = (try? c.decode(PlaybackSettings.self, forKey: .playback)) ?? PlaybackSettings()
         queue = (try? c.decode(QueueSettings.self, forKey: .queue)) ?? QueueSettings()
         theme = (try? c.decode(ThemeSettings.self, forKey: .theme)) ?? ThemeSettings()
+        services = (try? c.decode(ServiceSettings.self, forKey: .services)) ?? ServiceSettings()
     }
 }
 
@@ -123,4 +125,23 @@ public struct ThemeSettings: Codable, Sendable, Hashable {
     public var preset = "ember"
 
     public init() {}
+}
+
+public struct ServiceSettings: Codable, Sendable, Hashable {
+    public var singAPIBase = "https://lyrics-api-production-b10f.up.railway.app"
+    public var singAPIEnabled = true
+    public var lrclibEnabled = true
+    public var timeoutSeconds: Double = 6
+
+    public init() {}
+
+    public init(from decoder: Decoder) throws {
+        let d = ServiceSettings()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func v<T: Decodable>(_ k: CodingKeys, _ fallback: T) -> T { (try? c.decode(T.self, forKey: k)) ?? fallback }
+        singAPIBase = v(.singAPIBase, d.singAPIBase)
+        singAPIEnabled = v(.singAPIEnabled, d.singAPIEnabled)
+        lrclibEnabled = v(.lrclibEnabled, d.lrclibEnabled)
+        timeoutSeconds = v(.timeoutSeconds, d.timeoutSeconds)
+    }
 }
