@@ -32,6 +32,12 @@ public final class HostController: HostAPI {
     public private(set) var queue = QueueModel()
     public private(set) var nowPlaying = NowPlaying()
     public private(set) var lyrics: Lyrics?
+    public private(set) var pitchTrack: PitchTrack?
+    @ObservationIgnored public private(set) var livePoints: [LivePitchPoint] = []
+    @ObservationIgnored public private(set) var liveScore: Int?
+    @ObservationIgnored var scoreHits = 0
+    @ObservationIgnored var scoreFrames = 0
+    @ObservationIgnored var pitchTask: Task<Void, Never>?
     public private(set) var singers: [Singer] = []
     public private(set) var session: SessionInfo?
     public private(set) var preparing: [SongID: Double] = [:]
@@ -139,6 +145,7 @@ public final class HostController: HostAPI {
         let pending = songs.filter { $0.readiness != .ready && $0.readiness != .missingFile }.map(\.id)
         let env = ProcessInfo.processInfo.environment
         if modelAvailable, env["SING_NO_SEP"] == nil { await separation.enqueueBackground(pending) }
+        Task { await upgradeLyricsInBackground() }
         if settings.playback.micEnabled, env["SING_NO_MIC"] == nil { await startMic() }
     }
 
@@ -221,6 +228,75 @@ public final class HostController: HostAPI {
         if r == .ready || r == .failed { scheduleBroadcast() }
         if r == .ready, nowPlaying.state == .preparing, nowPlaying.entry?.song.id == id {
             Task { await startPrepared() }
+        }
+        if r == .ready {
+            Task {
+                if let record = try? await library.song(id) {
+                    let track = await loadPitch(record)
+                    if nowPlaying.entry?.song.id == id { pitchTrack = track }
+                }
+                await refreshLyrics(id)
+            }
+        }
+    }
+
+    /// Resolves lyrics again (providers, then on-device alignment) and swaps them in if the song is on.
+    public func refreshLyrics(_ id: SongID, force: Bool = false) async {
+        guard let record = try? await library.song(id) else { return }
+        if force { try? FileManager.default.removeItem(at: paths.lyrics(record.audioHash)); try? FileManager.default.removeItem(at: paths.songCache(record.audioHash).appendingPathComponent("align-failed")) }
+        guard let l = await lyricsService.resolve(record, refresh: force) else { return }
+        if nowPlaying.entry?.song.id == id { lyrics = l.shifted(by: Double(record.lyricOffsetMs) / 1000) }
+        if let i = songs.firstIndex(where: { $0.id == id }) {
+            songs[i].lyricsKind = l.kind
+            songs[i].isDuet = l.isDuet
+        }
+        scheduleBroadcast()
+    }
+
+    /// Reference melody from the cache, or extracted now from the vocal stem.
+    func loadPitch(_ record: SongRecord) async -> PitchTrack? {
+        let url = paths.pitch(record.audioHash)
+        if let d = try? Data(contentsOf: url), let t = try? JSONDecoder().decode(PitchTrack.self, from: d) { return t }
+        let vocals = paths.vocals(record.audioHash)
+        guard FileManager.default.fileExists(atPath: vocals.path) else { return nil }
+        let track = await Task.detached(priority: .userInitiated) { try? MelodyExtractor.extract(vocals: vocals) }.value
+        if let track, let d = try? JSONEncoder().encode(track) { try? d.write(to: url) }
+        return track
+    }
+
+    func resetLiveScore() {
+        livePoints = []
+        liveScore = nil
+        scoreHits = 0
+        scoreFrames = 0
+        pitchTask?.cancel()
+        pitchTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(33))
+                self?.samplePitch()
+            }
+        }
+    }
+
+    func samplePitch() {
+        guard nowPlaying.state == .playing else { return }
+        let t = lyricTime
+        livePoints.removeAll { $0.time < t - 6 || $0.time > t + 0.5 }
+        guard let sung = mic.livePitch.midi else { return }
+        let target = pitchTrack?.note(at: t)
+        let folded = target.map { PitchTrack.foldOctave(sung, toward: $0.midi) } ?? sung
+        let hit = target.map { abs(folded - $0.midi) < 1.0 } ?? false
+        livePoints.append(LivePitchPoint(time: t, midi: folded, onTarget: hit))
+        if target != nil {
+            scoreFrames += 1
+            if hit { scoreHits += 1 }
+            liveScore = Int((Double(scoreHits) / Double(max(scoreFrames, 1)) * 100).rounded())
+        }
+    }
+
+    func upgradeLyricsInBackground() async {
+        for s in songs where s.readiness == .ready && (s.lyricsKind ?? .plain) < .word {
+            await refreshLyrics(s.id)
         }
     }
 
@@ -351,6 +427,7 @@ public final class HostController: HostAPI {
         finishCurrentPlay(skipped: nowPlaying.state == .playing || nowPlaying.state == .paused)
         playback.stop()
         lyrics = nil
+        pitchTrack = nil
         guard let entry = queue.popNext() else {
             nowPlaying = NowPlaying(state: .idle, guideVocal: settings.playback.defaultGuideVocal)
             persistQueue()
@@ -388,6 +465,8 @@ public final class HostController: HostAPI {
             return
         }
         if lyrics == nil { lyrics = await lyricsService.resolve(record) }
+        pitchTrack = await loadPitch(record)
+        resetLiveScore()
         playback.guideVocal = record.defaultGuideVocal ?? settings.playback.defaultGuideVocal
         nowPlaying.guideVocal = playback.guideVocal
         if settings.playback.countdownBetweenSongs {

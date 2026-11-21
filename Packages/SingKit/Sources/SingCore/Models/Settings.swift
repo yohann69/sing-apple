@@ -131,6 +131,9 @@ public struct ServiceSettings: Codable, Sendable, Hashable {
     public var singAPIBase = "https://lyrics-api-production-b10f.up.railway.app"
     public var singAPIEnabled = true
     public var lrclibEnabled = true
+    public var neteaseEnabled = true
+    public var kugouEnabled = true
+    public var aiAlignmentEnabled = true
     public var timeoutSeconds: Double = 6
 
     public init() {}
@@ -142,6 +145,9 @@ public struct ServiceSettings: Codable, Sendable, Hashable {
         singAPIBase = v(.singAPIBase, d.singAPIBase)
         singAPIEnabled = v(.singAPIEnabled, d.singAPIEnabled)
         lrclibEnabled = v(.lrclibEnabled, d.lrclibEnabled)
+        neteaseEnabled = v(.neteaseEnabled, d.neteaseEnabled)
+        kugouEnabled = v(.kugouEnabled, d.kugouEnabled)
+        aiAlignmentEnabled = v(.aiAlignmentEnabled, d.aiAlignmentEnabled)
         timeoutSeconds = v(.timeoutSeconds, d.timeoutSeconds)
     }
 }

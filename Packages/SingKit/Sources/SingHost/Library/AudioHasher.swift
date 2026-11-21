@@ -92,6 +92,7 @@ public struct SingPaths: Sendable {
     public func vocals(_ hash: String) -> URL { songCache(hash).appendingPathComponent("vocals.caf") }
     public func instrumental(_ hash: String) -> URL { songCache(hash).appendingPathComponent("instrumental.caf") }
     public func lyrics(_ hash: String) -> URL { songCache(hash).appendingPathComponent("lyrics.json") }
+    public func pitch(_ hash: String) -> URL { songCache(hash).appendingPathComponent("pitch.json") }
 
     public func ensure() throws {
         for dir in [root, cache, models, recordings] {

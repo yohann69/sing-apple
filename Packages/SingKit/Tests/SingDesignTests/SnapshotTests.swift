@@ -41,6 +41,19 @@ struct SnapshotTests {
         let next = QueueEntry(song: SongSummary(id: 2, title: "Paper Moon", artist: "Someone", durationMs: 180_000), singers: [tom])
         var np = NowPlaying(entry: entry, state: .playing)
         var model = TVStageModel(nowPlaying: np, lyrics: solo, upNext: next, settings: TVDisplaySettings(), artwork: nil, joinURL: "sing://192.168.1.2:47800?code=123456", guestCode: "123456", preparingProgress: 0.42, countdownEnd: nil, duration: 200, queuePreview: [next])
+        var notes: [PitchNote] = []
+        var t = 8.0
+        for (i, m) in [60, 62, 64, 64, 67, 65, 64, 62, 60, 62, 64, 67, 69, 67, 64, 62, 60, 59, 60, 62].enumerated() {
+            let d = [0.4, 0.3, 0.6, 0.25][i % 4]
+            notes.append(PitchNote(start: t, end: t + d, midi: Float(m)))
+            t += d + 0.12
+        }
+        model.pitch = PitchTrack(notes: notes)
+        let livePts = stride(from: 12.0, to: 14.6, by: 0.033).map { x -> LivePitchPoint in
+            let target = model.pitch!.note(at: x)?.midi ?? 62
+            return LivePitchPoint(time: x, midi: target + Float(sin(x * 7) * 0.6), onTarget: true)
+        }
+        model.live = { (livePts, 87) }
         try render("tv-solo", model, time: 14.6)
 
         let duet = Lyrics(kind: .word, source: .manual, agents: [Agent(id: "v1"), Agent(id: "v2")], lines: [

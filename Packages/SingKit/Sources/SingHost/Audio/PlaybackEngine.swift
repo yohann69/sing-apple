@@ -151,6 +151,7 @@ public final class MicEngine {
     public private(set) var isRunning = false
     public var level: Float { meter.value }
     private let meter = LevelMeter()
+    public let livePitch = LivePitch()
     private var inputUID: String?
     private var outputUID: String?
 
@@ -191,7 +192,7 @@ public final class MicEngine {
         guard format.channelCount > 0, format.sampleRate > 0 else { throw SeparationError.badAudio("no microphone") }
         let input = engine.inputNode
         let mixer = engine.mainMixerNode
-        let tapBlock = Self.tap(meter)
+        let tapBlock = Self.tap(meter, pitch: livePitch, sampleRate: format.sampleRate)
         let eq = self.eq, reverb = self.reverb, engine = self.engine, attach = !configured
         try objc {
             if attach {
@@ -219,12 +220,13 @@ public final class MicEngine {
         meter.value = 0
     }
 
-    nonisolated static func tap(_ meter: LevelMeter) -> AVAudioNodeTapBlock {
+    nonisolated static func tap(_ meter: LevelMeter, pitch: LivePitch, sampleRate: Double) -> AVAudioNodeTapBlock {
         { @Sendable buf, _ in
             guard let ch = buf.floatChannelData?[0] else { return }
             var peak: Float = 0
             for i in 0..<Int(buf.frameLength) { peak = max(peak, abs(ch[i])) }
             meter.value = peak
+            pitch.process(ch, count: Int(buf.frameLength), sampleRate: sampleRate)
         }
     }
 }

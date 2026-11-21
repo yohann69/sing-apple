@@ -105,3 +105,65 @@ private func fixture(_ name: String) throws -> Data {
         #expect(s.playback.autoAdvance == true)
     }
 }
+
+@Suite struct WordSyncedTests {
+    @Test func yrc() throws {
+        let text = """
+        {"t":0,"c":[{"tx":"作词: "},{"tx":"Someone"}]}
+        [8550,3990](8550,360,0)Do (8910,390,0)you (9300,300,0)ever
+        [12600,2000](12600,500,0)Hel(13100,400,0)lo (13500,600,0)there
+        [15000,1000](15000,1000,0)Bye
+        """
+        let l = try #require(WordSyncedParser.parseYRC(text, source: .netease))
+        #expect(l.lines.count == 3)
+        #expect(l.kind == .syllable)
+        #expect(l.lines[0].text == "Do you ever")
+        #expect(l.lines[1].words[0].map(\.text) == ["Hel", "lo"])
+        #expect(l.lines[0].segments[1].start == 8.91)
+    }
+
+    @Test func krc() throws {
+        let text = "[ti:x]\n[1000,2000]<0,500,0>Un <500,500,0>deux\n[4000,1000]<0,1000,0>trois\n[6000,1000]<0,400,0>quatre <400,600,0>cinq"
+        let l = try #require(WordSyncedParser.parseKRC(text, source: .kugou))
+        #expect(l.kind == .word)
+        #expect(l.lines[0].segments[1].start == 1.5)
+        #expect(l.lines[2].text == "quatre cinq")
+    }
+}
+
+@Suite(.enabled(if: ProcessInfo.processInfo.environment["SING_NETWORK"] != nil))
+struct ProviderNetworkTests {
+    @Test func netease() async throws {
+        let l = try await NetEaseProvider().fetch(LyricsQuery(title: "Firework", artist: "Katy Perry", durationMs: 227_893))
+        #expect(l?.kind ?? .plain >= .word)
+    }
+
+    @Test func kugou() async throws {
+        let l = try await KugouProvider().fetch(LyricsQuery(title: "Désolé", artist: "Sexion d'Assaut", durationMs: 204_453))
+        #expect(l?.kind ?? .plain >= .word)
+        #expect((l?.lines.count ?? 0) > 20)
+    }
+}
+
+@Suite struct AlignerTests {
+    @Test func alignsRecognizedWordsAndFillsGaps() throws {
+        let lyrics = try LRCParser.parse("[00:10.00]hello there my friend\n[00:20.00]we sing all night", source: .embedded)
+        let rec = [
+            TimedWord(text: "Hello", start: 10.4, end: 10.8), TimedWord(text: "their", start: 10.9, end: 11.3),
+            TimedWord(text: "friend", start: 12.0, end: 12.6), TimedWord(text: "noise", start: 15, end: 15.2),
+            TimedWord(text: "we", start: 20.2, end: 20.4), TimedWord(text: "sing", start: 20.5, end: 21.0), TimedWord(text: "night", start: 21.8, end: 22.5),
+        ]
+        let r = LyricsAligner.align(lyrics, recognized: rec, duration: 30)
+        #expect(r.lyrics.kind == .word)
+        #expect(r.lyrics.source == .ai)
+        let w0 = r.lyrics.lines[0].segments
+        #expect(w0[0].start == 10.4)
+        #expect(w0[1].start == 10.9)
+        #expect(w0[2].start >= 11.3 && w0[2].start < 12.0)
+        #expect(w0[3].start == 12.0)
+        let w1 = r.lyrics.lines[1].segments
+        #expect(w1[2].start >= 21.0 && w1[2].end <= 21.8 + 0.001)
+        #expect(r.matchedRatio > 0.6)
+        for l in r.lyrics.lines { for (a, b) in zip(l.segments, l.segments.dropFirst()) { #expect(a.start <= b.start) } }
+    }
+}

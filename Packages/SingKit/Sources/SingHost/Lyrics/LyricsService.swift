@@ -17,28 +17,118 @@ public final class LyricsService: Sendable {
         return try? JSONDecoder().decode(Lyrics.self, from: data)
     }
 
-    /// Cache first, then local files, then the Sing API and LRCLIB; the richest timing wins.
+    actor InFlight {
+        var tasks: [String: Task<Lyrics?, Never>] = [:]
+        func run(_ key: String, _ body: @escaping @Sendable () async -> Lyrics?) async -> Lyrics? {
+            if let t = tasks[key] { return await t.value }
+            let t = Task { await body() }
+            tasks[key] = t
+            let v = await t.value
+            tasks[key] = nil
+            return v
+        }
+    }
+
+    let inFlight = InFlight()
+
+    var alignFailedMarker: (SongRecord) -> URL { { self.paths.songCache($0.audioHash).appendingPathComponent("align-failed") } }
+
+    func canAlign(_ song: SongRecord) -> Bool {
+        services().aiAlignmentEnabled
+            && FileManager.default.fileExists(atPath: paths.vocals(song.audioHash).path)
+            && !FileManager.default.fileExists(atPath: alignFailedMarker(song).path)
+    }
+
+    /// Cache first, then local files and every provider; the richest timing wins. When only
+    /// line or plain lyrics exist and the vocal stem is ready, on-device speech alignment makes them word synced.
     public func resolve(_ song: SongRecord, refresh: Bool = false) async -> Lyrics? {
-        if !refresh, let c = cached(song) { return c }
+        if !refresh, let c = cached(song), c.kind >= .word || (!canAlign(song) && c.source != .embedded) { return c }
+        return await inFlight.run(song.audioHash) {
+            var best = refresh ? nil : self.cached(song)
+            if (best?.kind ?? .plain) < .word, let fetched = await self.fetchBest(song), fetched.kind >= (best?.kind ?? .plain) {
+                best = fetched
+            }
+            if self.canAlign(song) {
+                let duration = Double(song.durationMs) / 1000
+                if let current = best, current.kind < .word {
+                    if let up = try? await SpeechAligner.upgrade(current, vocals: self.paths.vocals(song.audioHash), duration: duration, languageHint: song.language) {
+                        best = up
+                    } else {
+                        try? Data().write(to: self.alignFailedMarker(song))
+                    }
+                } else if best == nil {
+                    best = await self.transcribe(song, duration: duration)
+                }
+            }
+            if let best { self.store(best, for: song) }
+            return best
+        }
+    }
+
+    /// No lyrics anywhere: write them from what is sung, one line per phrase.
+    func transcribe(_ song: SongRecord, duration: TimeInterval) async -> Lyrics? {
+        let lang = song.language.map { String($0.prefix(2)) } ?? "en"
+        guard let words = try? await SpeechAligner.recognize(vocals: paths.vocals(song.audioHash), language: lang), words.count > 10 else { return nil }
+        var lines: [LyricLine] = []
+        var current: [TimedWord] = []
+        func flush() {
+            guard !current.isEmpty else { return }
+            let segs = current.map { LyricSegment(text: $0.text, start: $0.start, end: $0.end) }
+            lines.append(LyricLine(id: lines.count, start: segs[0].start, end: segs.last!.end, segments: segs))
+            current = []
+        }
+        for w in words {
+            if let last = current.last, w.start - last.end > 0.7 || current.count >= 9 { flush() }
+            current.append(w)
+        }
+        flush()
+        return Lyrics(kind: .word, source: .ai, language: lang, lines: lines)
+    }
+
+    func fetchBest(_ song: SongRecord) async -> Lyrics? {
         var candidates: [(Lyrics, Int)] = []
-        candidates += localCandidates(song).map { ($0, 3) }
+        let local = localCandidates(song)
+        candidates += local.map { ($0, 3) }
         let best = candidates.max { $0.0.kind < $1.0.kind }
         if best?.0.kind ?? .plain < .word {
             let s = services()
             let query = LyricsQuery(title: song.title, artist: Self.primaryArtist(song.artist), album: song.album, durationMs: song.durationMs, isrc: song.isrc)
             var providers: [(any LyricsProvider, Int)] = []
             if s.singAPIEnabled, let base = URL(string: s.singAPIBase) { providers.append((SingLyricsAPI(base: base, timeout: s.timeoutSeconds), 4)) }
+            if s.neteaseEnabled { providers.append((NetEaseProvider(timeout: s.timeoutSeconds), 3)) }
+            if s.kugouEnabled { providers.append((KugouProvider(timeout: s.timeoutSeconds), 2)) }
             if s.lrclibEnabled { providers.append((LRCLibProvider(timeout: s.timeoutSeconds), 1)) }
+            let reference = local.first { $0.kind >= .line }
             await withTaskGroup(of: (Lyrics, Int)?.self) { group in
                 for (p, rank) in providers {
-                    group.addTask { (try? await p.fetch(query)).flatMap { $0 }.map { ($0, rank) } }
+                    group.addTask {
+                        guard let l = (try? await p.fetch(query)).flatMap({ $0 }) else { return nil }
+                        return (reference.map { Self.matchTiming(l, to: $0) } ?? l, rank)
+                    }
                 }
                 for await r in group { if let r { candidates.append(r) } }
             }
         }
-        guard let chosen = candidates.max(by: { ($0.0.kind, $0.1) < ($1.0.kind, $1.1) })?.0 else { return nil }
-        store(chosen, for: song)
-        return chosen
+        return candidates.max(by: { ($0.0.kind, $0.1) < ($1.0.kind, $1.1) })?.0
+    }
+
+    /// Providers often time a different release; shift them onto lyrics known to match this file.
+    static func matchTiming(_ l: Lyrics, to reference: Lyrics) -> Lyrics {
+        guard l.kind > .plain else { return l }
+        var diffs: [Double] = []
+        var used = Set<Int>()
+        for line in l.lines {
+            let key = normalizeForMatch(line.text)
+            guard key.count > 6 else { continue }
+            if let r = reference.lines.enumerated().filter({ !used.contains($0.offset) && normalizeForMatch($0.element.text) == key })
+                .min(by: { abs($0.element.start - line.start) < abs($1.element.start - line.start) }) {
+                used.insert(r.offset)
+                diffs.append(r.element.start - line.start)
+            }
+        }
+        guard diffs.count >= 3 else { return l }
+        let median = diffs.sorted()[diffs.count / 2]
+        return abs(median) > 0.12 && abs(median) < 30 ? l.shifted(by: median) : l
     }
 
     public func store(_ lyrics: Lyrics, for song: SongRecord) {

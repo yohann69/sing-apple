@@ -21,6 +21,8 @@ public enum LyricsKind: String, Codable, Sendable, Comparable, CaseIterable {
 public enum LyricsSource: String, Codable, Sendable {
     case singAPI
     case lrclib
+    case netease
+    case kugou
     case embedded
     case sidecar
     case ai

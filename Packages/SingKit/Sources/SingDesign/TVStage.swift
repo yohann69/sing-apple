@@ -14,6 +14,8 @@ public struct TVStageModel {
     public var countdownEnd: Date?
     public var duration: TimeInterval
     public var queuePreview: [QueueEntry]
+    public var pitch: PitchTrack?
+    public var live: () -> (points: [LivePitchPoint], score: Int?) = { ([], nil) }
 
     public init(nowPlaying: NowPlaying, lyrics: Lyrics?, upNext: QueueEntry?, settings: TVDisplaySettings, artwork: Image?, joinURL: String, guestCode: String, preparingProgress: Double?, countdownEnd: Date?, duration: TimeInterval, queuePreview: [QueueEntry]) {
         self.nowPlaying = nowPlaying
@@ -135,6 +137,14 @@ struct SingingStage: View {
                         .opacity(0.6)
                 }
                 Spacer(minLength: 0)
+                if model.settings.showPitchGuide, let track = model.pitch {
+                    let live = model.live()
+                    PitchGuideView(track: track, time: t, live: live.points, color: model.nowPlaying.entry?.singers.first?.color ?? theme.accent, score: live.score, showScore: model.settings.showLiveScore, scale: scale)
+                        .frame(height: 210 * scale)
+                        .padding(.horizontal, -140 * scale)
+                        .padding(.bottom, 18 * scale)
+                        .transition(.opacity)
+                }
                 if model.settings.showProgress {
                     ProgressLine(progress: model.duration > 0 ? t / model.duration : 0)
                         .frame(height: 4 * scale)

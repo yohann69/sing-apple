@@ -69,7 +69,7 @@ struct TVRootView: View {
 
     var body: some View {
         let np = host.nowPlaying
-        let model = TVStageModel(
+        var model = TVStageModel(
             nowPlaying: np,
             lyrics: host.lyrics,
             upNext: host.queue.entries.first,
@@ -82,6 +82,8 @@ struct TVRootView: View {
             duration: host.duration,
             queuePreview: host.queue.entries
         )
+        model.pitch = host.pitchTrack
+        model.live = { (host.livePoints, host.liveScore) }
         TVStageView(model: model) { host.lyricTime }
             .environment(\.singTheme, theme())
             .animation(.easeInOut(duration: 0.8), value: np.state)
