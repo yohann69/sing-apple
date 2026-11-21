@@ -21,6 +21,21 @@ public struct PitchGuideView: View {
         self.scale = scale
     }
 
+    /// Moving average so the live line shows the trend of the voice, not every wobble.
+    static func smooth(_ pts: [LivePitchPoint], window: Int = 9) -> [LivePitchPoint] {
+        guard pts.count > 2 else { return pts }
+        var out: [LivePitchPoint] = []
+        out.reserveCapacity(pts.count)
+        for i in pts.indices {
+            let lo = max(0, i - window / 2), hi = min(pts.count - 1, i + window / 2)
+            var sum: Float = 0
+            var n: Float = 0
+            for j in lo...hi where abs(pts[j].time - pts[i].time) < 0.3 { sum += pts[j].midi; n += 1 }
+            out.append(LivePitchPoint(time: pts[i].time, midi: sum / max(n, 1), onTarget: pts[i].onTarget))
+        }
+        return out
+    }
+
     static let past: TimeInterval = 3
     static let future: TimeInterval = 7
 
@@ -29,7 +44,7 @@ public struct PitchGuideView: View {
             let playX = size.width * 0.3
             let pps = playX / Self.past
             let low = track.low, high = max(track.high, track.low + 8)
-            let barH = max(8 * scale, min(22 * scale, size.height / CGFloat(high - low) * 0.9))
+            let barH = max(16 * scale, min(28 * scale, size.height / CGFloat(high - low) * 1.1))
             func y(_ m: Float) -> CGFloat {
                 let f = CGFloat((m - low) / (high - low))
                 return size.height - barH / 2 - f * (size.height - barH)
@@ -56,7 +71,7 @@ public struct PitchGuideView: View {
             if live.count > 1 {
                 var p = Path()
                 var last: LivePitchPoint?
-                for pt in live where pt.time <= time {
+                for pt in Self.smooth(live) where pt.time <= time {
                     let pos = CGPoint(x: playX + CGFloat(pt.time - time) * pps, y: y(pt.midi))
                     if let l = last, pt.time - l.time < 0.15 { p.addLine(to: pos) } else { p.move(to: pos) }
                     last = pt

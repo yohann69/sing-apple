@@ -47,6 +47,29 @@ public struct PitchTrack: Codable, Sendable, Hashable {
         return notes[lo..<end]
     }
 
+    /// A calmer version for display: close notes merge into longer bars that follow the melody's trend.
+    public func simplified(maxGap: TimeInterval = 0.3, tolerance: Float = 2.5, minLength: TimeInterval = 0.45) -> PitchTrack {
+        var merged: [PitchNote] = []
+        var weight: [Double] = []
+        for n in notes {
+            let d = n.end - n.start
+            if let last = merged.last, n.start - last.end <= maxGap, abs(n.midi - last.midi) <= tolerance {
+                let w = weight[weight.count - 1]
+                let m = Float((Double(last.midi) * w + Double(n.midi) * d) / (w + d))
+                merged[merged.count - 1] = PitchNote(start: last.start, end: n.end, midi: m)
+                weight[weight.count - 1] = w + d
+            } else {
+                merged.append(n)
+                weight.append(d)
+            }
+        }
+        let kept = merged.filter { $0.end - $0.start >= minLength }.map { PitchNote(start: $0.start, end: $0.end, midi: $0.midi.rounded()) }
+        var out = PitchTrack(version: version, notes: kept)
+        out.low = low
+        out.high = high
+        return out
+    }
+
     /// Octave-tolerant: moves a sung pitch by whole octaves to the octave closest to the target.
     public static func foldOctave(_ sung: Float, toward target: Float) -> Float {
         var s = sung
