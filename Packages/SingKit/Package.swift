@@ -25,7 +25,8 @@ let package = Package(
                 "SingCore",
                 "SingObjC",
                 .product(name: "GRDB", package: "GRDB.swift"),
-            ]
+            ],
+            resources: [.copy("Resources/web")]
         ),
         .testTarget(name: "SingCoreTests", dependencies: ["SingCore"], resources: [.copy("Fixtures")]),
         .testTarget(name: "SingDesignTests", dependencies: ["SingDesign"]),

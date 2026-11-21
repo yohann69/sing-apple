@@ -172,8 +172,9 @@ public final class HostController: HostAPI {
         }
     }
 
+    /// Opens the web remote on any phone; the iPad and Android apps read the same link to pair.
     public var joinURL: String {
-        "sing://\(Self.localIPv4() ?? "localhost"):\(port)?code=\(guestCode)&name=\(serverName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
+        "http://\(Self.localIPv4() ?? "localhost"):\(port)/join?code=\(guestCode)"
     }
 
     public var hostJoinURL: String {

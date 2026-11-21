@@ -161,6 +161,7 @@ public final class SingServer: Sendable {
 
     static func route(_ req: HTTPRequest, api: any HostAPI) async -> HTTPResponse {
         let parts = req.path.split(separator: "/").map(String.init)
+        if req.method == "GET", parts.first != "v1" { return WebRemote.page(req.path) }
         guard parts.first == "v1" else { return error(404, "notFound", "Unknown path") }
         let rest = Array(parts.dropFirst())
         do {
@@ -210,5 +211,19 @@ public final class SingServer: Sendable {
         } catch {
             return self.error(400, "badRequest", "\(error)")
         }
+    }
+}
+
+/// The web remote: one page any phone opens from the TV's QR code, no app needed.
+enum WebRemote {
+    static let html: Data? = Bundle.module.url(forResource: "index", withExtension: "html", subdirectory: "web").flatMap { try? Data(contentsOf: $0) }
+
+    static func page(_ path: String) -> HTTPResponse {
+        if path == "/manifest.webmanifest" {
+            let m = ##"{"name":"Sing!","short_name":"Sing!","start_url":"/","display":"standalone","background_color":"#0F0A08","theme_color":"#F26B1D"}"##
+            return HTTPResponse(contentType: "application/manifest+json", body: Data(m.utf8))
+        }
+        guard let html else { return HTTPResponse(status: 404, contentType: "text/plain", body: Data("Web remote missing".utf8)) }
+        return HTTPResponse(contentType: "text/html; charset=utf-8", body: html, extraHeaders: ["Cache-Control": "no-cache"])
     }
 }
