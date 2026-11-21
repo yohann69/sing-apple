@@ -43,6 +43,29 @@ public enum AudioDevices {
         return id
     }
 
+    public static func uid(of id: AudioDeviceID) -> String? { string(id, kAudioDevicePropertyDeviceUID) }
+
+    /// A private aggregate of an input and an output device, so one engine can use a mic and another output.
+    public static func makeAggregate(inputUID: String, outputUID: String) -> AudioDeviceID? {
+        let desc: [String: Any] = [
+            kAudioAggregateDeviceNameKey: "Sing! mic + output",
+            kAudioAggregateDeviceUIDKey: "io.github.yohann69.sing.aggregate.\(UUID().uuidString)",
+            kAudioAggregateDeviceIsPrivateKey: 1,
+            kAudioAggregateDeviceMainSubDeviceKey: outputUID,
+            kAudioAggregateDeviceSubDeviceListKey: [
+                [kAudioSubDeviceUIDKey: outputUID],
+                [kAudioSubDeviceUIDKey: inputUID, kAudioSubDeviceDriftCompensationKey: 1],
+            ],
+        ]
+        var id: AudioDeviceID = 0
+        guard AudioHardwareCreateAggregateDevice(desc as CFDictionary, &id) == noErr else { return nil }
+        return id
+    }
+
+    public static func destroyAggregate(_ id: AudioDeviceID) {
+        AudioHardwareDestroyAggregateDevice(id)
+    }
+
     @discardableResult
     public static func setBufferSize(_ id: AudioDeviceID, frames: UInt32) -> Bool {
         var addr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyBufferFrameSize, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)

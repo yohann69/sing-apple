@@ -561,7 +561,11 @@ public final class HostController: HostAPI {
         nowPlaying.positionAt = .now
     }
 
+    @ObservationIgnored var lastMicState: MicStatus.State?
+
     func tick() async {
+        let ms = micStatus.state
+        if ms != lastMicState { lastMicState = ms; micStateText = micStatus.message; scheduleBroadcast() }
         guard nowPlaying.state == .playing else { return }
         syncPosition()
         let idx = lyrics?.lineIndex(at: lyricTime)
@@ -622,7 +626,48 @@ public final class HostController: HostAPI {
             lastError = "Sing! cannot use the microphone. Allow it in System Settings, Privacy & Security, Microphone."
             return
         }
-        do { try mic.start() } catch { lastError = "Microphone: \(error.localizedDescription)" }
+        do {
+            try mic.start()
+            micStartedAt = .now
+            micError = nil
+        } catch {
+            micError = error.localizedDescription
+            lastError = "Microphone: \(error.localizedDescription)"
+        }
+        scheduleBroadcast()
+    }
+
+    @ObservationIgnored var micStartedAt: Date?
+    public private(set) var micStateText: String?
+    @ObservationIgnored var micError: String?
+
+    public var micStatus: MicStatus {
+        let perm = AVCaptureDevice.authorizationStatus(for: .audio)
+        if !settings.playback.micEnabled { return MicStatus(state: .off) }
+        if perm == .notDetermined { return MicStatus(state: .needsPermission, message: "Sing! is waiting for microphone permission.") }
+        if perm == .denied || perm == .restricted {
+            return MicStatus(state: .denied, message: "Microphone access is off for Sing!. Turn it on in System Settings, Privacy & Security, Microphone.")
+        }
+        if let micError { return MicStatus(state: .failed, deviceName: mic.deviceName, message: micError) }
+        guard mic.isRunning else { return MicStatus(state: .failed, deviceName: mic.deviceName, message: "The microphone is not running.") }
+        if let t = micStartedAt, Date.now.timeIntervalSince(t) > 2, mic.peakSinceStart == 0 {
+            return MicStatus(state: .silent, deviceName: mic.deviceName, message: "macOS is sending silence: the permission for this build of Sing! is stale. Click Reset microphone permission, then allow it again.")
+        }
+        return MicStatus(state: .running, deviceName: mic.deviceName, level: mic.level)
+    }
+
+    /// Clears the stale microphone permission (each local build has a new signature) and asks again.
+    public func resetMicPermission() {
+        mic.stop()
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        p.arguments = ["reset", "Microphone", Bundle.main.bundleIdentifier ?? "io.github.yohann69.sing.mac"]
+        try? p.run()
+        p.waitUntilExit()
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            await startMic()
+        }
     }
 
     func applySettings() {
@@ -648,7 +693,7 @@ public final class HostController: HostAPI {
         return LiveState(
             nowPlaying: np,
             queue: queue.withEstimates(remainingCurrent: max(0, playback.duration - playback.position)),
-            settings: settings, singers: singers, session: session, preparing: preparing, requests: requests
+            settings: settings, singers: singers, session: session, preparing: preparing, requests: requests, mic: micStatus
         )
     }
 
