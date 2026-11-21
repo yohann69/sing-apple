@@ -61,6 +61,7 @@ struct StagePage: View {
 
 struct CompactControls: View {
     @Environment(PadModel.self) private var model
+    @State private var mixer = false
     @State private var guide: Double = 0
     @State private var editing = false
 
@@ -72,6 +73,7 @@ struct CompactControls: View {
                     round("backward.end.fill", 52, "Restart") { model.send(.transport(.restart)) }
                     round(np.state == .playing ? "pause.fill" : "play.fill", 70, np.state == .playing ? "Pause" : "Play") { model.send(.transport(.pause)) }
                     round("forward.end.fill", 52, "Next song") { model.send(.transport(.skip)) }
+                    round("slider.vertical.3", 52, "Mixer") { mixer = true }
                 }
             }
             HStack(spacing: 10) {
@@ -87,6 +89,7 @@ struct CompactControls: View {
         }
         .onAppear { guide = np.guideVocal }
         .onChange(of: np.guideVocal) { _, v in if !editing { guide = v } }
+        .sheet(isPresented: $mixer) { MixerSheet() }
     }
 
     private func round(_ symbol: String, _ size: CGFloat, _ label: String, action: @escaping () -> Void) -> some View {
@@ -331,5 +334,56 @@ struct ResultCard: View {
         }
         .padding(20)
         .glassEffect(.regular.tint((result.singers.first?.color ?? .orange).opacity(0.25)), in: RoundedRectangle(cornerRadius: 28))
+    }
+}
+
+/// Host mixer: every level the Mac exposes, applied live.
+struct MixerSheet: View {
+    @Environment(PadModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+
+    private func binding(_ get: @escaping (PlaybackSettings) -> Double, _ set: @escaping (inout PlaybackSettings, Double) -> Void) -> Binding<Double> {
+        Binding(get: { get(model.state.settings.playback) }, set: { v in model.updateSettings { set(&$0.playback, v) } })
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Music") {
+                    slider("Guide vocal", "person.wave.2", Binding(get: { model.state.nowPlaying.guideVocal }, set: { model.send(.setGuideVocal($0)) }))
+                    slider("Music volume", "speaker.wave.2", binding({ $0.musicVolume }) { $0.musicVolume = $1 })
+                }
+                Section {
+                    Toggle(isOn: Binding(get: { model.state.settings.playback.micEnabled }, set: { v in model.updateSettings { $0.playback.micEnabled = v } })) {
+                        Label("Microphone", systemImage: "mic")
+                    }
+                    slider("Mic volume", "mic.fill", binding({ $0.micGain }) { $0.micGain = $1 })
+                    slider("Reverb", "waveform.path", binding({ $0.micReverb }) { $0.micReverb = $1 })
+                } header: {
+                    Text("Microphone")
+                } footer: {
+                    if let mic = model.state.mic {
+                        Text(mic.message ?? (mic.state == .running ? "Live on \(mic.deviceName ?? "the Mac's mic")" : mic.state.rawValue.capitalized))
+                    }
+                }
+                Section("Next songs") {
+                    slider("Default guide vocal", "person.wave.2.fill", binding({ $0.defaultGuideVocal }) { $0.defaultGuideVocal = $1 })
+                }
+            }
+            .navigationTitle("Mixer")
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func slider(_ title: String, _ symbol: String, _ value: Binding<Double>) -> some View {
+        VStack(alignment: .leading) {
+            HStack {
+                Label(title, systemImage: symbol)
+                Spacer()
+                Text("\(Int(value.wrappedValue * 100))%").monospacedDigit().foregroundStyle(.secondary)
+            }
+            Slider(value: value, in: 0...1)
+        }
     }
 }

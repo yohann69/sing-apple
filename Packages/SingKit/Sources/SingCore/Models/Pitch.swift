@@ -86,6 +86,68 @@ public struct PitchTrack: Codable, Sendable, Hashable {
         return out
     }
 
+    /// The display version of a detailed contour: each phrase is averaged over ~0.35 s windows,
+    /// then reduced to a few flat notes and slides so it shows the shape, not every syllable.
+    public func coarse(window: TimeInterval = 0.35, epsilon: Float = 1.1, minPhrase: TimeInterval = 0.3) -> PitchTrack {
+        var phrases: [[PitchNote]] = []
+        for n in notes {
+            if let last = phrases.last?.last, n.start - last.end < 0.2 { phrases[phrases.count - 1].append(n) } else { phrases.append([n]) }
+        }
+        var out: [PitchNote] = []
+        for ph in phrases {
+            let start = ph[0].start, end = ph[ph.count - 1].end
+            guard end - start >= minPhrase else { continue }
+            var pts: [(Double, Float)] = []
+            var t = start
+            while t < end {
+                let w = min(window, end - t)
+                var samples: [Float] = []
+                var u = t
+                while u < t + w {
+                    if let n = ph.first(where: { $0.start <= u && $0.end >= u }) { samples.append(n.midi(at: u)) }
+                    u += 0.02
+                }
+                if !samples.isEmpty {
+                    samples.sort()
+                    pts.append((t + w / 2, samples[samples.count / 2]))
+                }
+                t += w
+            }
+            guard pts.count >= 1 else { continue }
+            if pts.count == 1 {
+                out.append(PitchNote(start: start, end: end, midi: pts[0].1.rounded()))
+                continue
+            }
+            pts[0].0 = start
+            pts[pts.count - 1].0 = end
+            let kept = Self.rdp(pts, epsilon: epsilon)
+            for k in 0..<(kept.count - 1) {
+                let a = kept[k], b = kept[k + 1]
+                let flat = abs(b.1 - a.1) < 0.8
+                let m = flat ? ((a.1 + b.1) / 2).rounded() : a.1
+                out.append(PitchNote(start: a.0, end: b.0, midi: m, endMidi: flat ? nil : b.1))
+            }
+        }
+        var t = PitchTrack(version: version, notes: out)
+        t.low = low
+        t.high = high
+        return t
+    }
+
+    static func rdp(_ pts: [(Double, Float)], epsilon: Float) -> [(Double, Float)] {
+        guard pts.count > 2 else { return pts }
+        let a = pts[0], b = pts[pts.count - 1]
+        var maxD: Float = 0
+        var idx = 0
+        for i in 1..<(pts.count - 1) {
+            let f = Float((pts[i].0 - a.0) / max(b.0 - a.0, 1e-6))
+            let d = abs(pts[i].1 - (a.1 + (b.1 - a.1) * f))
+            if d > maxD { maxD = d; idx = i }
+        }
+        guard maxD > epsilon else { return [a, b] }
+        return Array(rdp(Array(pts[0...idx]), epsilon: epsilon).dropLast()) + rdp(Array(pts[idx...]), epsilon: epsilon)
+    }
+
     /// Octave-tolerant: moves a sung pitch by whole octaves to the octave closest to the target.
     public static func foldOctave(_ sung: Float, toward target: Float) -> Float {
         var s = sung
