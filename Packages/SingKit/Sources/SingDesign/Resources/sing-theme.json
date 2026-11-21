@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "default": "ember",
+  "presets": {
+    "ember": {
+      "name": "Ember",
+      "dark": true,
+      "accent": "#F26B1D",
+      "accentSoft": "#FF9A57",
+      "background": "#0F0A08",
+      "backgroundBlobs": ["#FF6A13", "#C2264B", "#FFB347", "#5B1A7A"],
+      "text": "#FFF4EC",
+      "textSecondary": "#FFF4ECB8",
+      "lyricDim": "#FFF4EC66",
+      "success": "#7BE07B",
+      "warning": "#FFC145",
+      "danger": "#FF5C5C"
+    },
+    "aurora": {
+      "name": "Aurora",
+      "dark": true,
+      "accent": "#7A5CFF",
+      "accentSoft": "#A08BFF",
+      "background": "#0B0820",
+      "backgroundBlobs": ["#6D4BFF", "#00B3AA", "#E0459A", "#1A2A6C"],
+      "text": "#FFFFFF",
+      "textSecondary": "#FFFFFFBD",
+      "lyricDim": "#FFFFFF6B",
+      "success": "#7BE07B",
+      "warning": "#FFC145",
+      "danger": "#FF5C5C"
+    },
+    "studio": {
+      "name": "Studio",
+      "dark": false,
+      "accent": "#0A5CD6",
+      "accentSoft": "#4C8DF0",
+      "background": "#EEF0F5",
+      "backgroundBlobs": ["#C9D8FF", "#FFD6E8", "#D7F5EE", "#FFF1C9"],
+      "text": "#111216",
+      "textSecondary": "#111216A8",
+      "lyricDim": "#11121661",
+      "success": "#1E9E4A",
+      "warning": "#C98A00",
+      "danger": "#D33A3A"
+    }
+  },
+  "singers": ["#FF8A3D", "#4CC9F0", "#FFC145", "#7BE07B", "#B28DFF", "#FF6B9A", "#5EEAD4", "#F472B6"],
+  "lyrics": {
+    "weight": "heavy",
+    "design": "rounded",
+    "activeScale": 1.0,
+    "previousScale": 0.48,
+    "nextScale": 0.46,
+    "backgroundVocalScale": 0.36
+  },
+  "motion": {
+    "spring": { "response": 0.55, "damping": 0.82 },
+    "lineTransition": 0.7,
+    "blobDrift": 28
+  }
+}
