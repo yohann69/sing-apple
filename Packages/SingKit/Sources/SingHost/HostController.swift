@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import AVFoundation
 import CryptoKit
 import Foundation
 import GRDB
@@ -27,6 +28,7 @@ public final class HostController: HostAPI {
     @ObservationIgnored let advertise: Bool
 
     public private(set) var songs: [SongSummary] = []
+    public private(set) var artworkFiles: [SongID: URL] = [:]
     public private(set) var queue = QueueModel()
     public private(set) var nowPlaying = NowPlaying()
     public private(set) var lyrics: Lyrics?
@@ -116,6 +118,8 @@ public final class HostController: HostAPI {
 
     public var modelAvailable: Bool { FileManager.default.fileExists(atPath: Self.locateModel(paths: paths).path) }
 
+    public func clearError() { lastError = nil }
+
     // MARK: Lifecycle
 
     public func start() async {
@@ -133,22 +137,24 @@ public final class HostController: HostAPI {
             }
         }
         let pending = songs.filter { $0.readiness != .ready && $0.readiness != .missingFile }.map(\.id)
-        if modelAvailable { await separation.enqueueBackground(pending) }
-        if settings.playback.micEnabled { try? mic.start() }
+        let env = ProcessInfo.processInfo.environment
+        if modelAvailable, env["SING_NO_SEP"] == nil { await separation.enqueueBackground(pending) }
+        if settings.playback.micEnabled, env["SING_NO_MIC"] == nil { await startMic() }
     }
 
     func startServer() {
         let server = SingServer(api: self, port: requestedPort)
         self.server = server
-        Task.detached {
+        Task {
             do {
-                await MainActor.run { self.serverRunning = true }
-                try await server.run()
+                try await server.start()
+                serverRunning = true
+                if advertise { bonjour.start(name: serverName, port: server.port) }
             } catch {
-                await MainActor.run { self.serverRunning = false; self.lastError = "Pad server stopped: \(error)" }
+                serverRunning = false
+                lastError = "Pads cannot connect: port \(server.port) is busy (\(error.localizedDescription))."
             }
         }
-        if advertise { bonjour.start(name: serverName, port: server.port) }
     }
 
     public var joinURL: String {
@@ -184,6 +190,7 @@ public final class HostController: HostAPI {
         let counts = (try? await library.playCounts()) ?? [:]
         let all = (try? await library.all()) ?? []
         songs = all.map { $0.summary(playCount: counts[$0.id ?? 0] ?? 0, progress: preparing[$0.id ?? 0]) }
+        artworkFiles = Dictionary(uniqueKeysWithValues: all.compactMap { r in r.hasArtwork ? (r.id ?? 0, paths.artwork(r.audioHash)) : nil })
     }
 
     public func importFiles(_ urls: [URL]) async {
@@ -523,12 +530,26 @@ public final class HostController: HostAPI {
 
     // MARK: Settings
 
+    public private(set) var micPermission: AVAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+
+    public func startMic() async {
+        if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+            _ = await AVCaptureDevice.requestAccess(for: .audio)
+        }
+        micPermission = AVCaptureDevice.authorizationStatus(for: .audio)
+        guard micPermission == .authorized else {
+            lastError = "Sing! cannot use the microphone. Allow it in System Settings, Privacy & Security, Microphone."
+            return
+        }
+        do { try mic.start() } catch { lastError = "Microphone: \(error.localizedDescription)" }
+    }
+
     func applySettings() {
         servicesBox.value = settings.services
         playback.volume = settings.playback.musicVolume
         mic.gain = settings.playback.micGain
         mic.reverbMix = settings.playback.micReverb
-        if settings.playback.micEnabled, !mic.isRunning, server != nil { try? mic.start() }
+        if settings.playback.micEnabled, !mic.isRunning, server != nil { Task { await startMic() } }
         if !settings.playback.micEnabled, mic.isRunning { mic.stop() }
     }
 
@@ -574,7 +595,7 @@ public final class HostController: HostAPI {
     // MARK: HostAPI
 
     public func serverInfo() async -> ServerInfo {
-        ServerInfo(name: serverName, appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1")
+        ServerInfo(name: serverName, appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1", livePort: port + 1)
     }
 
     public func pair(_ request: PairRequest) async throws -> PairResponse {
@@ -665,7 +686,7 @@ public final class HostController: HostAPI {
             var incoming = s
             incoming.services = settings.services
             settings = incoming
-        case .ping:
+        case .ping, .auth:
             break
         }
     }

@@ -13,20 +13,18 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
-        .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.0.0"),
-        .package(url: "https://github.com/hummingbird-project/hummingbird-websocket.git", from: "2.0.0"),
     ],
     targets: [
         .target(name: "SingCore"),
+        .target(name: "SingObjC"),
         .target(name: "SingDesign", dependencies: ["SingCore"], resources: [.process("Resources")]),
         .target(name: "SingClient", dependencies: ["SingCore"]),
         .target(
             name: "SingHost",
             dependencies: [
                 "SingCore",
+                "SingObjC",
                 .product(name: "GRDB", package: "GRDB.swift"),
-                .product(name: "Hummingbird", package: "hummingbird"),
-                .product(name: "HummingbirdWebSocket", package: "hummingbird-websocket"),
             ]
         ),
         .testTarget(name: "SingCoreTests", dependencies: ["SingCore"], resources: [.copy("Fixtures")]),

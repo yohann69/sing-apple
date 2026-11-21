@@ -1,6 +1,12 @@
 #if os(macOS)
 import AVFoundation
 import Foundation
+import SingObjC
+
+func objc(_ body: () -> Void) throws {
+    var error: NSError?
+    if !SingTryObjC(body, &error) { throw error ?? NSError(domain: "SingObjC", code: 1) }
+}
 
 /// Plays the instrumental and vocal stems in lockstep, with the guide vocal as the vocal stem's volume.
 @MainActor
@@ -54,10 +60,13 @@ public final class PlaybackEngine {
         vocalsFile = voc
         sampleRate = inst.processingFormat.sampleRate
         duration = Double(inst.length) / sampleRate
-        engine.disconnectNodeOutput(instrumental)
-        engine.disconnectNodeOutput(vocals)
-        engine.connect(instrumental, to: stemMixer, format: inst.processingFormat)
-        engine.connect(vocals, to: stemMixer, format: voc?.processingFormat ?? inst.processingFormat)
+        let engine = self.engine, instrumental = self.instrumental, vocals = self.vocals, stemMixer = self.stemMixer
+        try objc {
+            engine.disconnectNodeOutput(instrumental)
+            engine.disconnectNodeOutput(vocals)
+            engine.connect(instrumental, to: stemMixer, format: inst.processingFormat)
+            engine.connect(vocals, to: stemMixer, format: voc?.processingFormat ?? inst.processingFormat)
+        }
         vocals.volume = Float(guideVocal)
         stemMixer.outputVolume = Float(volume)
         startFrame = 0
@@ -82,22 +91,28 @@ public final class PlaybackEngine {
         let gen = generation
         let remaining = AVAudioFrameCount(max(0, inst.length - startFrame))
         guard remaining > 0 else { onFinished?(); return }
-        instrumental.scheduleSegment(inst, startingFrame: startFrame, frameCount: remaining, at: nil, completionCallbackType: .dataPlayedBack) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.generation == gen, self.isPlaying else { return }
-                self.isPlaying = false
-                self.startFrame = inst.length
-                self.onFinished?()
-            }
-        }
+        let length = inst.length
+        instrumental.scheduleSegment(inst, startingFrame: startFrame, frameCount: remaining, at: nil, completionCallbackType: .dataPlayedBack, completionHandler: Self.completion { [weak self] in
+            guard let self, self.generation == gen, self.isPlaying else { return }
+            self.isPlaying = false
+            self.startFrame = length
+            self.onFinished?()
+        })
         if let voc = vocalsFile {
             let vRemaining = AVAudioFrameCount(max(0, voc.length - startFrame))
             if vRemaining > 0 { vocals.scheduleSegment(voc, startingFrame: startFrame, frameCount: vRemaining, at: nil) }
         }
         let start = AVAudioTime(hostTime: mach_absolute_time() + AVAudioTime.hostTime(forSeconds: 0.05))
-        instrumental.play(at: start)
-        if vocalsFile != nil { vocals.play(at: start) }
+        let instrumental = self.instrumental, vocals = self.vocals, hasVocals = vocalsFile != nil
+        try objc {
+            instrumental.play(at: start)
+            if hasVocals { vocals.play(at: start) }
+        }
         isPlaying = true
+    }
+
+    nonisolated static func completion(_ body: @escaping @MainActor @Sendable () -> Void) -> AVAudioPlayerNodeCompletionHandler {
+        { @Sendable _ in Task { @MainActor in body() } }
     }
 
     public func pause() {
@@ -134,7 +149,8 @@ public final class MicEngine {
     private let eq = AVAudioUnitEQ(numberOfBands: 2)
     private var configured = false
     public private(set) var isRunning = false
-    public private(set) var level: Float = 0
+    public var level: Float { meter.value }
+    private let meter = LevelMeter()
     private var inputUID: String?
     private var outputUID: String?
 
@@ -173,23 +189,24 @@ public final class MicEngine {
         }
         let format = engine.inputNode.outputFormat(forBus: 0)
         guard format.channelCount > 0, format.sampleRate > 0 else { throw SeparationError.badAudio("no microphone") }
-        if !configured {
-            engine.attach(eq)
-            engine.attach(reverb)
-            configured = true
+        let input = engine.inputNode
+        let mixer = engine.mainMixerNode
+        let tapBlock = Self.tap(meter)
+        let eq = self.eq, reverb = self.reverb, engine = self.engine, attach = !configured
+        try objc {
+            if attach {
+                engine.attach(eq)
+                engine.attach(reverb)
+            }
+            engine.connect(input, to: eq, format: format)
+            engine.connect(eq, to: reverb, format: format)
+            engine.connect(reverb, to: mixer, format: format)
+            input.removeTap(onBus: 0)
+            input.installTap(onBus: 0, bufferSize: 1024, format: format, block: tapBlock)
         }
-        let mono = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: 1)!
-        engine.connect(engine.inputNode, to: eq, format: mono)
-        engine.connect(eq, to: reverb, format: mono)
-        engine.connect(reverb, to: engine.mainMixerNode, format: mono)
+        configured = true
         engine.mainMixerNode.outputVolume = Float(gain)
-        engine.inputNode.removeTap(onBus: 0)
-        engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buf, _ in
-            guard let ch = buf.floatChannelData?[0] else { return }
-            var peak: Float = 0
-            for i in 0..<Int(buf.frameLength) { peak = max(peak, abs(ch[i])) }
-            Task { @MainActor in self?.level = peak }
-        }
+        engine.prepare()
         try engine.start()
         isRunning = true
     }
@@ -199,7 +216,25 @@ public final class MicEngine {
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         isRunning = false
-        level = 0
+        meter.value = 0
+    }
+
+    nonisolated static func tap(_ meter: LevelMeter) -> AVAudioNodeTapBlock {
+        { @Sendable buf, _ in
+            guard let ch = buf.floatChannelData?[0] else { return }
+            var peak: Float = 0
+            for i in 0..<Int(buf.frameLength) { peak = max(peak, abs(ch[i])) }
+            meter.value = peak
+        }
+    }
+}
+
+final class LevelMeter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value: Float = 0
+    var value: Float {
+        get { lock.withLock { _value } }
+        set { lock.withLock { _value = newValue } }
     }
 }
 #endif

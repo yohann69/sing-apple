@@ -89,12 +89,11 @@ public struct SingAPIClient: Sendable {
         return data
     }
 
+    /// The live socket listens on the next port up.
     public var liveURL: URL? {
-        guard let token else { return nil }
-        var c = URLComponents(url: endpoint.baseURL.appendingPathComponent("v1/live"), resolvingAgainstBaseURL: false)!
-        c.scheme = "ws"
-        c.queryItems = [URLQueryItem(name: "token", value: token)]
-        return c.url
+        guard token != nil else { return nil }
+        let h = endpoint.host.contains(":") && !endpoint.host.hasPrefix("[") ? "[\(endpoint.host)]" : endpoint.host
+        return URL(string: "ws://\(h):\(endpoint.port + 1)/v1/live")
     }
 
     func request(_ url: URL, method: String = "GET") -> URLRequest {
@@ -136,6 +135,7 @@ public final class LiveConnection: @unchecked Sendable {
     public enum Status: Sendable, Equatable { case connecting, connected, disconnected(String?) }
 
     private let url: URL
+    private let token: String
     private let session = URLSession(configuration: .default)
     private var task: URLSessionWebSocketTask?
     private var stopped = false
@@ -144,8 +144,9 @@ public final class LiveConnection: @unchecked Sendable {
     private let onStatus: @Sendable (Status) -> Void
     private var attempt = 0
 
-    public init(url: URL, onMessage: @escaping @Sendable (ServerMessage) -> Void, onStatus: @escaping @Sendable (Status) -> Void) {
+    public init(url: URL, token: String, onMessage: @escaping @Sendable (ServerMessage) -> Void, onStatus: @escaping @Sendable (Status) -> Void) {
         self.url = url
+        self.token = token
         self.onMessage = onMessage
         self.onStatus = onStatus
     }
@@ -179,6 +180,9 @@ public final class LiveConnection: @unchecked Sendable {
         guard let t else { return }
         onStatus(.connecting)
         t.resume()
+        if let auth = try? SingProtocol.encoder().encode(ClientMessage.auth(token: token)) {
+            t.send(.string(String(decoding: auth, as: UTF8.self))) { _ in }
+        }
         receive(t)
         t.sendPing { [weak self] error in
             guard let self else { return }

@@ -32,9 +32,11 @@ public struct ServerInfo: Codable, Sendable, Hashable {
     public var protocolVersion: Int
     public var minimumProtocolVersion: Int
     public var appVersion: String
+    public var livePort: Int?
 
-    public init(name: String, protocolVersion: Int = SingProtocol.version, minimumProtocolVersion: Int = SingProtocol.minimumSupportedVersion, appVersion: String) {
+    public init(name: String, protocolVersion: Int = SingProtocol.version, minimumProtocolVersion: Int = SingProtocol.minimumSupportedVersion, appVersion: String, livePort: Int? = nil) {
         self.name = name
+        self.livePort = livePort
         self.protocolVersion = protocolVersion
         self.minimumProtocolVersion = minimumProtocolVersion
         self.appVersion = appVersion
@@ -114,7 +116,12 @@ public struct LiveState: Codable, Sendable, Hashable {
     public var settings: SingSettings
     public var singers: [Singer]
     public var session: SessionInfo?
-    public var preparing: [SongID: Double]
+    /// Separation progress keyed by song id as a string, so JSON keeps an object.
+    public var preparingByID: [String: Double]
+
+    public var preparing: [SongID: Double] {
+        Dictionary(uniqueKeysWithValues: preparingByID.compactMap { k, v in SongID(k).map { ($0, v) } })
+    }
 
     public init(nowPlaying: NowPlaying = NowPlaying(), queue: [QueueEntry] = [], settings: SingSettings = SingSettings(), singers: [Singer] = [], session: SessionInfo? = nil, preparing: [SongID: Double] = [:]) {
         self.nowPlaying = nowPlaying
@@ -122,7 +129,7 @@ public struct LiveState: Codable, Sendable, Hashable {
         self.settings = settings
         self.singers = singers
         self.session = session
-        self.preparing = preparing
+        self.preparingByID = Dictionary(uniqueKeysWithValues: preparing.map { (String($0.key), $0.value) })
     }
 }
 
@@ -201,6 +208,7 @@ public enum TransportCommand: String, Codable, Sendable {
 }
 
 public enum ClientMessage: Sendable {
+    case auth(token: String)
     case enqueue(Enqueue)
     case remove(entryID: String)
     case move(Move)
@@ -215,6 +223,7 @@ public enum ClientMessage: Sendable {
     public struct Move: Codable, Sendable { public var entryID: String; public var toIndex: Int
         public init(entryID: String, toIndex: Int) { self.entryID = entryID; self.toIndex = toIndex } }
     private struct EntryRef: Codable { var entryID: String }
+    private struct Auth: Codable { var token: String }
     private struct Seek: Codable { var positionMs: Int }
     private struct Value: Codable { var value: Double }
     private struct Command: Codable { var command: TransportCommand }
@@ -226,6 +235,7 @@ extension ClientMessage: Codable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Keys.self)
         switch try c.decode(String.self, forKey: .type) {
+        case "auth": self = .auth(token: try c.decode(Auth.self, forKey: .data).token)
         case "enqueue": self = .enqueue(try c.decode(Enqueue.self, forKey: .data))
         case "remove": self = .remove(entryID: try c.decode(EntryRef.self, forKey: .data).entryID)
         case "move": self = .move(try c.decode(Move.self, forKey: .data))
@@ -241,6 +251,7 @@ extension ClientMessage: Codable {
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: Keys.self)
         switch self {
+        case .auth(let t): try c.encode("auth", forKey: .type); try c.encode(Auth(token: t), forKey: .data)
         case .enqueue(let v): try c.encode("enqueue", forKey: .type); try c.encode(v, forKey: .data)
         case .remove(let id): try c.encode("remove", forKey: .type); try c.encode(EntryRef(entryID: id), forKey: .data)
         case .move(let v): try c.encode("move", forKey: .type); try c.encode(v, forKey: .data)

@@ -47,7 +47,7 @@ struct EndToEndTests {
         #expect(singer.name == "Léa")
 
         let inbox = Inbox()
-        let live = LiveConnection(url: try #require(client.liveURL), onMessage: { inbox.add($0) }, onStatus: { _ in })
+        let live = LiveConnection(url: try #require(client.liveURL), token: paired.token, onMessage: { inbox.add($0) }, onStatus: { _ in })
         live.start()
         try await Task.sleep(for: .milliseconds(500))
         #expect(inbox.all.contains { if case .hello = $0 { true } else { false } })

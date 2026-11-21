@@ -1,7 +1,5 @@
 import Foundation
-import Hummingbird
-import HummingbirdWebSocket
-import NIOCore
+import Network
 import SingCore
 
 public struct PadIdentity: Sendable, Hashable {
@@ -39,31 +37,35 @@ public struct NewSinger: Codable, Sendable {
 }
 
 actor ConnectionHub {
-    struct Client {
-        var pad: PadIdentity
-        var outbound: WebSocketOutboundWriter
-    }
+    private var clients: [UUID: (pad: PadIdentity?, client: WebSocketListener.Client)] = [:]
 
-    private var clients: [UUID: Client] = [:]
+    func open(_ c: WebSocketListener.Client) { clients[c.id] = (nil, c) }
+    func authenticate(_ id: UUID, as pad: PadIdentity) { clients[id]?.pad = pad }
+    func pad(_ id: UUID) -> PadIdentity? { clients[id]?.pad }
+    func close(_ id: UUID) -> PadIdentity? { clients.removeValue(forKey: id)?.pad }
+    var pads: [PadIdentity] { clients.values.compactMap(\.pad) }
 
-    func add(_ id: UUID, _ c: Client) { clients[id] = c }
-    func remove(_ id: UUID) { clients[id] = nil }
-    var count: Int { clients.count }
-    var pads: [PadIdentity] { clients.values.map(\.pad) }
-
-    func send(_ message: ServerMessage, to padID: String? = nil) async {
+    func send(_ message: ServerMessage, to padID: String? = nil) {
         guard let data = try? SingProtocol.encoder().encode(message) else { return }
         let text = String(decoding: data, as: UTF8.self)
-        for (id, c) in clients where padID == nil || c.pad.padID == padID {
-            do { try await c.outbound.write(.text(text)) } catch { clients[id] = nil }
+        for (_, c) in clients where c.pad != nil && (padID == nil || c.pad?.padID == padID) {
+            c.client.send(text)
         }
     }
 }
 
+/// HTTP on `port` for requests and artwork, WebSocket on `port + 1` for live state.
 public final class SingServer: Sendable {
     let api: any HostAPI
     let hub = ConnectionHub()
     public let port: Int
+    public var livePort: Int { port + 1 }
+    private let listeners = Listeners()
+
+    final class Listeners: @unchecked Sendable {
+        var http: HTTPListener?
+        var ws: WebSocketListener?
+    }
 
     public init(api: any HostAPI, port: Int = SingProtocol.defaultPort) {
         self.api = api
@@ -76,133 +78,137 @@ public final class SingServer: Sendable {
 
     public func connectedPads() async -> [PadIdentity] { await hub.pads }
 
-    public func run() async throws {
-        let router = Router(context: BasicRequestContext.self)
+    public func stop() {
+        listeners.http?.stop()
+        listeners.ws?.stop()
+    }
+
+    /// Starts both listeners and returns once HTTP is ready, or throws.
+    public func start() async throws {
         let api = self.api
-        router.add(middleware: ErrorMiddleware())
-
-        router.get("v1/info") { _, _ in try json(await api.serverInfo()) }
-        router.post("v1/pair") { req, ctx in
-            let body = try await req.decode(as: PairRequest.self, context: ctx)
-            return try json(try await api.pair(body))
-        }
-
-        let authed = router.group("v1").add(middleware: AuthMiddleware(api: api))
-        authed.get("state") { _, _ in try json(await api.liveState()) }
-        authed.get("songs") { req, _ in
-            let q = req.uri.queryParameters
-            let filters = SearchFilters(
-                readyOnly: q["ready"] == "1", duetOnly: q["duet"] == "1",
-                decade: q["decade"].flatMap { Int(String($0)) }, genre: q["genre"].map(String.init), language: q["language"].map(String.init)
-            )
-            return try json(try await api.search(q["q"].map(String.init) ?? "", filters: filters))
-        }
-        authed.get("songs/:id/artwork") { req, ctx in
-            guard let id = ctx.parameters.get("id", as: Int64.self), let data = await api.artwork(songID: id) else { throw HTTPError(.notFound) }
-            var headers = HTTPFields()
-            headers[.contentType] = "image/jpeg"
-            headers[.cacheControl] = "max-age=86400"
-            return Response(status: .ok, headers: headers, body: .init(byteBuffer: ByteBuffer(bytes: data)))
-        }
-        authed.get("songs/:id/lyrics") { _, ctx in
-            guard let id = ctx.parameters.get("id", as: Int64.self), let l = await api.lyrics(songID: id) else { throw HTTPError(.notFound) }
-            return try json(l)
-        }
-        authed.get("singers") { _, _ in try json(await api.singers()) }
-        authed.post("singers") { req, ctx in
-            let body = try await req.decode(as: NewSinger.self, context: ctx)
-            guard let token = bearer(req), let pad = await api.authenticate(token: token) else { throw HTTPError(.unauthorized) }
-            return try json(try await api.createSinger(name: body.name, emoji: body.emoji, pad: pad))
-        }
-        authed.get("stats") { req, _ in
-            let p = req.uri.queryParameters["period"].flatMap { StatsPeriod(rawValue: String($0)) } ?? .tonight
-            return try json(try await api.stats(p))
-        }
-        authed.get("stats/singers/:id") { _, ctx in
-            guard let id = ctx.parameters.get("id", as: Int64.self), let s = try await api.singerStats(id) else { throw HTTPError(.notFound) }
-            return try json(s)
-        }
-        authed.get("suggestions") { req, _ in
-            let singer = req.uri.queryParameters["singer"].flatMap { Int64(String($0)) }
-            return try json(try await api.suggestions(singerID: singer))
-        }
-
-        let wsRouter = Router(context: BasicWebSocketRequestContext.self)
         let hub = self.hub
-        wsRouter.ws("v1/live") { req, _ in
-            guard let token = req.uri.queryParameters["token"].map(String.init), await api.authenticate(token: token) != nil else { return .dontUpgrade }
-            return .upgrade([:])
-        } onUpgrade: { inbound, outbound, ctx in
-            guard let token = ctx.request.uri.queryParameters["token"].map(String.init), let pad = await api.authenticate(token: token) else { return }
-            let id = UUID()
-            await hub.add(id, .init(pad: pad, outbound: outbound))
-            await api.padConnected(pad, connected: true)
-            defer { Task { await hub.remove(id); await api.padConnected(pad, connected: false) } }
-            let enc = SingProtocol.encoder()
-            if let hello = try? enc.encode(ServerMessage.hello(.init(server: await api.serverInfo(), role: pad.role, padID: pad.padID))) {
-                try await outbound.write(.text(String(decoding: hello, as: UTF8.self)))
+        let http = try HTTPListener(port: port) { req in await Self.route(req, api: api) }
+        let ws = try WebSocketListener(port: livePort)
+        ws.onOpen = { client in Task { await hub.open(client) } }
+        ws.onClose = { client in
+            Task {
+                if let pad = await hub.close(client.id) { await api.padConnected(pad, connected: false) }
             }
-            if let state = try? enc.encode(ServerMessage.state(await api.liveState())) {
-                try await outbound.write(.text(String(decoding: state, as: UTF8.self)))
+        }
+        ws.onText = { client, text in
+            Task {
+                guard let msg = try? SingProtocol.decoder().decode(ClientMessage.self, from: Data(text.utf8)) else { return }
+                await Self.handleLive(msg, client: client, hub: hub, api: api)
             }
-            for try await message in inbound.messages(maxSize: 1 << 20) {
-                guard case .text(let text) = message,
-                      let msg = try? SingProtocol.decoder().decode(ClientMessage.self, from: Data(text.utf8)) else { continue }
-                do {
-                    try await api.handle(msg, from: pad)
-                } catch {
-                    let body = ErrorBody(code: "rejected", message: (error as? LocalizedError)?.errorDescription ?? "\(error)")
-                    if let data = try? enc.encode(ServerMessage.error(body)) {
-                        try? await outbound.write(.text(String(decoding: data, as: UTF8.self)))
-                    }
+        }
+        listeners.http = http
+        listeners.ws = ws
+        ws.start()
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            let once = Once()
+            http.start { state in
+                switch state {
+                case .ready: if once.fire() { cont.resume() }
+                case .failed(let e): if once.fire() { cont.resume(throwing: e) }
+                default: break
                 }
             }
         }
-
-        let app = Application(
-            router: router,
-            server: .http1WebSocketUpgrade(webSocketRouter: wsRouter),
-            configuration: .init(address: .hostname("0.0.0.0", port: port), serverName: "Sing")
-        )
-        try await app.runService(gracefulShutdownSignals: [])
     }
-}
 
-func json<T: Encodable>(_ value: T) throws -> Response {
-    let data = try SingProtocol.encoder().encode(value)
-    var headers = HTTPFields()
-    headers[.contentType] = "application/json; charset=utf-8"
-    return Response(status: .ok, headers: headers, body: .init(byteBuffer: ByteBuffer(bytes: data)))
-}
+    final class Once: @unchecked Sendable {
+        private let lock = NSLock()
+        private var done = false
+        func fire() -> Bool { lock.withLock { defer { done = true }; return !done } }
+    }
 
-func bearer(_ req: Request) -> String? {
-    guard let auth = req.headers[.authorization], auth.hasPrefix("Bearer ") else { return nil }
-    return String(auth.dropFirst(7))
-}
-
-struct AuthMiddleware<Context: RequestContext>: RouterMiddleware {
-    let api: any HostAPI
-
-    func handle(_ request: Request, context: Context, next: (Request, Context) async throws -> Response) async throws -> Response {
-        guard let token = bearer(request), await api.authenticate(token: token) != nil else {
-            throw HTTPError(.unauthorized, message: "Pair this device again")
+    static func handleLive(_ msg: ClientMessage, client: WebSocketListener.Client, hub: ConnectionHub, api: any HostAPI) async {
+        let enc = SingProtocol.encoder()
+        func send(_ m: ServerMessage) {
+            if let d = try? enc.encode(m) { client.send(String(decoding: d, as: UTF8.self)) }
         }
-        return try await next(request, context)
-    }
-}
-
-struct ErrorMiddleware<Context: RequestContext>: RouterMiddleware {
-    func handle(_ request: Request, context: Context, next: (Request, Context) async throws -> Response) async throws -> Response {
+        if case .auth(let token) = msg {
+            guard let pad = await api.authenticate(token: token) else {
+                send(.error(ErrorBody(code: "unauthorized", message: "This device is no longer paired. Pair it again.")))
+                client.close()
+                return
+            }
+            await hub.open(client)
+            await hub.authenticate(client.id, as: pad)
+            send(.hello(.init(server: await api.serverInfo(), role: pad.role, padID: pad.padID)))
+            send(.state(await api.liveState()))
+            await api.padConnected(pad, connected: true)
+            return
+        }
+        guard let pad = await hub.pad(client.id) else {
+            send(.error(ErrorBody(code: "unauthorized", message: "Authenticate first")))
+            return
+        }
         do {
-            return try await next(request, context)
+            try await api.handle(msg, from: pad)
+        } catch {
+            send(.error(ErrorBody(code: "rejected", message: (error as? LocalizedError)?.errorDescription ?? "\(error)")))
+        }
+    }
+
+    static func json<T: Encodable>(_ value: T, status: Int = 200) -> HTTPResponse {
+        HTTPResponse(status: status, body: (try? SingProtocol.encoder().encode(value)) ?? Data())
+    }
+
+    static func error(_ status: Int, _ code: String, _ message: String) -> HTTPResponse {
+        json(ErrorBody(code: code, message: message), status: status)
+    }
+
+    static func route(_ req: HTTPRequest, api: any HostAPI) async -> HTTPResponse {
+        let parts = req.path.split(separator: "/").map(String.init)
+        guard parts.first == "v1" else { return error(404, "notFound", "Unknown path") }
+        let rest = Array(parts.dropFirst())
+        do {
+            switch (req.method, rest.first) {
+            case ("GET", "info"):
+                return json(await api.serverInfo())
+            case ("POST", "pair"):
+                let body = try SingProtocol.decoder().decode(PairRequest.self, from: req.body)
+                return json(try await api.pair(body))
+            default: break
+            }
+            guard let token = req.bearer, let pad = await api.authenticate(token: token) else {
+                return error(401, "unauthorized", "This device is no longer paired. Pair it again.")
+            }
+            switch (req.method, rest) {
+            case ("GET", ["state"]):
+                return json(await api.liveState())
+            case ("GET", ["songs"]):
+                let q = req.query
+                let filters = SearchFilters(readyOnly: q["ready"] == "1", duetOnly: q["duet"] == "1", decade: q["decade"].flatMap { Int($0) }, genre: q["genre"], language: q["language"])
+                return json(try await api.search(q["q"] ?? "", filters: filters))
+            case ("GET", let p) where p.count == 3 && p[0] == "songs" && p[2] == "artwork":
+                guard let id = Int64(p[1]), let data = await api.artwork(songID: id) else { return error(404, "notFound", "No artwork") }
+                return HTTPResponse(contentType: "image/jpeg", body: data, extraHeaders: ["Cache-Control": "max-age=86400"])
+            case ("GET", let p) where p.count == 3 && p[0] == "songs" && p[2] == "lyrics":
+                guard let id = Int64(p[1]), let l = await api.lyrics(songID: id) else { return error(404, "notFound", "No lyrics") }
+                return json(l)
+            case ("GET", ["singers"]):
+                return json(await api.singers())
+            case ("POST", ["singers"]):
+                let body = try SingProtocol.decoder().decode(NewSinger.self, from: req.body)
+                return json(try await api.createSinger(name: body.name, emoji: body.emoji, pad: pad))
+            case ("GET", ["stats"]):
+                return json(try await api.stats(req.query["period"].flatMap(StatsPeriod.init(rawValue:)) ?? .tonight))
+            case ("GET", let p) where p.count == 3 && p[0] == "stats" && p[1] == "singers":
+                guard let id = Int64(p[2]), let s = try await api.singerStats(id) else { return error(404, "notFound", "Unknown singer") }
+                return json(s)
+            case ("GET", ["suggestions"]):
+                return json(try await api.suggestions(singerID: req.query["singer"].flatMap { Int64($0) }))
+            default:
+                return error(404, "notFound", "Unknown path")
+            }
         } catch let e as ErrorBody {
-            var r = try json(e)
-            r.status = .badRequest
-            return r
-        } catch let e as QueueError {
-            var r = try json(ErrorBody(code: "queue", message: e.errorDescription ?? ""))
-            r.status = .badRequest
-            return r
+            return json(e, status: 400)
+        } catch let e as LocalizedError {
+            return error(400, "rejected", e.errorDescription ?? "\(e)")
+        } catch {
+            return self.error(400, "badRequest", "\(error)")
         }
     }
 }
