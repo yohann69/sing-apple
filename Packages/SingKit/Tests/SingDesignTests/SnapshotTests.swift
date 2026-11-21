@@ -66,7 +66,7 @@ struct SnapshotTests {
         try render("tv-duet", model, time: 17.5)
 
         if let path = ProcessInfo.processInfo.environment["SING_PITCH"], let d = try? Data(contentsOf: URL(fileURLWithPath: path)), let real = try? JSONDecoder().decode(PitchTrack.self, from: d) {
-            model.pitch = real.simplified()
+            model.pitch = real.version >= 2 ? real : real.simplified()
             model.live = { ([], nil) }
             try render("tv-pitch-real", model, time: 60)
         }

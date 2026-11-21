@@ -42,7 +42,9 @@ public final class LyricsService: Sendable {
     /// Cache first, then local files and every provider; the richest timing wins. When only
     /// line or plain lyrics exist and the vocal stem is ready, on-device speech alignment makes them word synced.
     public func resolve(_ song: SongRecord, refresh: Bool = false) async -> Lyrics? {
-        if !refresh, let c = cached(song), c.kind >= .word || (!canAlign(song) && c.source != .embedded) { return c }
+        let undiarized = !FileManager.default.fileExists(atPath: paths.songCache(song.audioHash).appendingPathComponent("diarized").path)
+            && FileManager.default.fileExists(atPath: paths.vocals(song.audioHash).path)
+        if !refresh, let c = cached(song), !undiarized || c.isDuet, c.kind >= .word || (!canAlign(song) && c.source != .embedded) { return c }
         return await inFlight.run(song.audioHash) {
             var best = refresh ? nil : self.cached(song)
             if (best?.kind ?? .plain) < .word, let fetched = await self.fetchBest(song), fetched.kind >= (best?.kind ?? .plain) {
@@ -60,9 +62,22 @@ public final class LyricsService: Sendable {
                     best = await self.transcribe(song, duration: duration)
                 }
             }
+            if let current = best, let tagged = self.diarizeIfNeeded(current, song: song) { best = tagged }
             if let best { self.store(best, for: song) }
             return best
         }
+    }
+
+    /// Lyrics without singer labels: guess who sings each line from the vocal stem.
+    func diarizeIfNeeded(_ lyrics: Lyrics, song: SongRecord) -> Lyrics? {
+        let marker = paths.songCache(song.audioHash).appendingPathComponent("diarized")
+        let model = paths.models.appendingPathComponent("ecapa.mlmodelc")
+        let vocals = paths.vocals(song.audioHash)
+        guard !lyrics.isDuet, !FileManager.default.fileExists(atPath: marker.path),
+              FileManager.default.fileExists(atPath: model.path), FileManager.default.fileExists(atPath: vocals.path) else { return nil }
+        try? Data().write(to: marker)
+        guard let outcome = try? SingerDiarizer.label(lyrics, vocals: vocals, artist: song.artist, model: model), outcome.lyrics.isDuet else { return nil }
+        return outcome.lyrics
     }
 
     /// No lyrics anywhere: write them from what is sung, one line per phrase.

@@ -1,14 +1,25 @@
 import Foundation
 
+/// A straight piece of the melody: flat when `endMidi` is nil, a slide (diagonal) otherwise.
 public struct PitchNote: Codable, Sendable, Hashable {
     public var start: TimeInterval
     public var end: TimeInterval
     public var midi: Float
+    public var endMidi: Float?
 
-    public init(start: TimeInterval, end: TimeInterval, midi: Float) {
+    public init(start: TimeInterval, end: TimeInterval, midi: Float, endMidi: Float? = nil) {
         self.start = start
         self.end = end
         self.midi = midi
+        self.endMidi = endMidi
+    }
+
+    public var finalMidi: Float { endMidi ?? midi }
+
+    public func midi(at t: TimeInterval) -> Float {
+        guard let e = endMidi, end > start else { return midi }
+        let f = Float(max(0, min(1, (t - start) / (end - start))))
+        return midi + (e - midi) * f
     }
 }
 
@@ -19,10 +30,12 @@ public struct PitchTrack: Codable, Sendable, Hashable {
     public var low: Float
     public var high: Float
 
+    public static let currentVersion = 2
+
     public init(version: Int = 1, notes: [PitchNote]) {
         self.version = version
         self.notes = notes
-        let sorted = notes.map(\.midi).sorted()
+        let sorted = (notes.map(\.midi) + notes.compactMap(\.endMidi)).sorted()
         low = sorted.isEmpty ? 48 : sorted[Int(Double(sorted.count - 1) * 0.03)] - 2
         high = sorted.isEmpty ? 72 : sorted[Int(Double(sorted.count - 1) * 0.97)] + 2
     }
@@ -35,6 +48,9 @@ public struct PitchTrack: Codable, Sendable, Hashable {
         }
         return nil
     }
+
+    /// The melody's pitch at a time, following slides.
+    public func target(at t: TimeInterval) -> Float? { note(at: t)?.midi(at: t) }
 
     public func notes(in range: ClosedRange<TimeInterval>) -> ArraySlice<PitchNote> {
         var lo = 0, hi = notes.count

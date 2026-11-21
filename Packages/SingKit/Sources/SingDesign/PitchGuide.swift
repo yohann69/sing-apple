@@ -44,7 +44,7 @@ public struct PitchGuideView: View {
             let playX = size.width * 0.3
             let pps = playX / Self.past
             let low = track.low, high = max(track.high, track.low + 8)
-            let barH = max(16 * scale, min(28 * scale, size.height / CGFloat(high - low) * 1.1))
+            let barH = max(12 * scale, min(20 * scale, size.height / CGFloat(high - low) * 0.8))
             func y(_ m: Float) -> CGFloat {
                 let f = CGFloat((m - low) / (high - low))
                 return size.height - barH / 2 - f * (size.height - barH)
@@ -55,17 +55,29 @@ public struct PitchGuideView: View {
                 p.addLine(to: CGPoint(x: size.width, y: y(Float(k))))
                 ctx.stroke(p, with: .color(.white.opacity(0.06)), lineWidth: 1)
             }
-            for n in track.notes(in: (time - Self.past)...(time + Self.future)) {
-                let x0 = playX + CGFloat(n.start - time) * pps
-                let x1 = playX + CGFloat(n.end - time) * pps
-                let rect = CGRect(x: x0, y: y(n.midi) - barH / 2, width: max(4, x1 - x0), height: barH)
-                let shape = Path(roundedRect: rect, cornerRadius: barH / 2)
-                if n.start <= time {
-                    var glow = ctx
-                    glow.addFilter(.shadow(color: color.opacity(0.7), radius: 10 * scale))
-                    glow.fill(shape, with: .color(color.opacity(n.end < time ? 0.75 : 0.95)))
-                } else {
-                    ctx.fill(shape, with: .color(.white.opacity(0.26)))
+            // Contiguous pieces are drawn as one contour so slides and held notes read as a single phrase.
+            let visible = Array(track.notes(in: (time - Self.past)...(time + Self.future)))
+            var phrases: [[PitchNote]] = []
+            for n in visible {
+                if let last = phrases.last?.last, abs(n.start - last.end) < 0.02 { phrases[phrases.count - 1].append(n) } else { phrases.append([n]) }
+            }
+            let style = StrokeStyle(lineWidth: barH, lineCap: .round, lineJoin: .round)
+            for phrase in phrases {
+                var path = Path()
+                for (k, n) in phrase.enumerated() {
+                    let p0 = CGPoint(x: playX + CGFloat(n.start - time) * pps, y: y(n.midi))
+                    let p1 = CGPoint(x: playX + CGFloat(n.end - time) * pps, y: y(n.finalMidi))
+                    if k == 0 { path.move(to: p0) } else { path.addLine(to: p0) }
+                    path.addLine(to: p1)
+                }
+                let startX = playX + CGFloat(phrase[0].start - time) * pps
+                let endX = playX + CGFloat(phrase[phrase.count - 1].end - time) * pps
+                ctx.stroke(path, with: .color(.white.opacity(0.28)), style: style)
+                if startX < playX {
+                    var sung = ctx
+                    sung.clip(to: Path(CGRect(x: 0, y: 0, width: min(playX, endX + barH), height: size.height)))
+                    sung.addFilter(.shadow(color: color.opacity(0.7), radius: 10 * scale))
+                    sung.stroke(path, with: .color(color.opacity(0.92)), style: style)
                 }
             }
             if live.count > 1 {
