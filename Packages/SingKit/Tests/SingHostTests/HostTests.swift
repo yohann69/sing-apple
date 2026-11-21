@@ -47,7 +47,7 @@ struct SampleImportTests {
         let db = try SingDatabase.inMemory()
         let store = LibraryStore(db: db, paths: paths)
         let result = await store.importFiles([sampleFolder])
-        #expect(result.added == 6, "\(result)")
+        #expect(result.added == LibraryStore.audioFiles(in: [sampleFolder]).count, "\(result)")
         #expect(result.failed.isEmpty)
         let songs = try await store.all()
         let firework = try #require(songs.first { $0.title == "Firework" })
@@ -58,7 +58,7 @@ struct SampleImportTests {
         #expect(firework.paletteColors?.count == 4)
         #expect(FileManager.default.fileExists(atPath: paths.songCache(firework.audioHash).appendingPathComponent("embedded.lrc").path))
         let again = await store.importFiles([sampleFolder])
-        #expect(again.skipped == 6)
+        #expect(again.skipped == result.added)
         for s in songs { print("IMPORTED", s.title, "|", s.artist, "|", s.isrc ?? "-", s.durationMs, s.paletteColors ?? []) }
     }
 }

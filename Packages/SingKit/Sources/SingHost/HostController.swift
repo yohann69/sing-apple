@@ -33,7 +33,7 @@ public final class HostController: HostAPI {
     public private(set) var nowPlaying = NowPlaying()
     public private(set) var lyrics: Lyrics?
     public private(set) var pitchTrack: PitchTrack? {
-        didSet { displayPitch = pitchTrack.map { $0.version >= PitchTrack.currentVersion ? $0 : $0.simplified() } }
+        didSet { displayPitch = pitchTrack.map { $0.version >= PitchTrack.currentVersion ? $0.coarse() : $0.simplified() } }
     }
     /// The trend shown on the TV; scoring keeps the detailed melody.
     public private(set) var displayPitch: PitchTrack?
@@ -149,6 +149,7 @@ public final class HostController: HostAPI {
         await separation.setProgressHandler { [weak self] id, p, r in
             Task { @MainActor in self?.separationProgress(id, p, r) }
         }
+        await separation.setPostProcess { [weak self] id in await self?.postProcess(id) }
         await reloadLibrary()
         await reloadSingers()
         await loadRequests()
@@ -291,15 +292,19 @@ public final class HostController: HostAPI {
         if r == .ready, nowPlaying.state == .preparing, nowPlaying.entry?.song.id == id {
             Task { await startPrepared() }
         }
-        if r == .ready {
-            Task {
-                if let record = try? await library.song(id) {
-                    let track = await loadPitch(record)
-                    if nowPlaying.entry?.song.id == id { pitchTrack = track }
-                }
-                await refreshLyrics(id)
-            }
+
+    }
+
+    /// Everything after separation, in order: lyrics (with AI timing and singer detection), then pitch.
+    func postProcess(_ id: SongID) async {
+        separationProgress(id, 0.75, .processing)
+        await refreshLyrics(id)
+        separationProgress(id, 0.88, .processing)
+        if let record = try? await library.song(id) {
+            let track = await loadPitch(record)
+            if nowPlaying.entry?.song.id == id { pitchTrack = track }
         }
+        separationProgress(id, 0.98, .processing)
     }
 
     /// Resolves lyrics again (providers, then on-device alignment) and swaps them in if the song is on.
@@ -518,7 +523,8 @@ public final class HostController: HostAPI {
         scheduleBroadcast()
         guard let record = try? await library.song(entry.song.id) else { return }
         async let lyr = lyricsService.resolve(record)
-        let ready = await separation.isReady(record)
+        let stems = await separation.isReady(record)
+        let ready = record.readiness == .ready && stems
         lyrics = await lyr.map { $0.shifted(by: Double(record.lyricOffsetMs) / 1000) }
         if ready || settings.playback.playOriginalWhenNotReady || !modelAvailable {
             await startPrepared()
@@ -925,7 +931,8 @@ public final class HostController: HostAPI {
 
     public func lyrics(songID: SongID, translateTo: String?) async -> Lyrics? {
         guard let s = try? await library.song(songID) else { return nil }
-        let base: Lyrics? = nowPlaying.entry?.song.id == songID ? lyrics : await lyricsService.resolve(s)
+        var base: Lyrics? = nowPlaying.entry?.song.id == songID ? lyrics : nil
+        if base == nil { base = await lyricsService.resolve(s) }
         guard let base, let lang = translateTo else { return base }
         return await translated(base, song: s, to: lang) ?? base
     }

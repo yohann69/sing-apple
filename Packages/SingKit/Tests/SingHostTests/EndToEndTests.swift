@@ -28,7 +28,7 @@ struct EndToEndTests {
         host.settings.services.lrclibEnabled = false
         await host.start()
         await host.importFiles([sampleFolder])
-        #expect(host.songs.count == 6)
+        #expect(host.songs.count == LibraryStore.audioFiles(in: [sampleFolder]).count)
         try await Task.sleep(for: .milliseconds(300))
 
         let endpoint = ServerEndpoint(name: "test", host: "127.0.0.1", port: port)
@@ -53,13 +53,13 @@ struct EndToEndTests {
         #expect(inbox.all.contains { if case .hello = $0 { true } else { false } })
 
         live.send(.enqueue(.init(songID: firework.id, singerIDs: [singer.id])))
-        try await Task.sleep(for: .seconds(2))
+        try await Task.sleep(for: .seconds(4))
         let state = try await client.state()
         #expect(state.nowPlaying.entry?.song.title == "Firework")
         #expect(state.nowPlaying.state == .playing)
         #expect(state.nowPlaying.entry?.singers.first?.name == "Léa")
         let lyrics = try await client.lyrics(firework.id)
-        #expect(lyrics.kind == .line)
+        #expect(lyrics.kind >= .line)
         #expect(lyrics.lines.count > 20)
         #expect(inbox.lastState?.nowPlaying.entry?.song.id == firework.id)
 
@@ -72,6 +72,7 @@ struct EndToEndTests {
         try await Task.sleep(for: .seconds(1.5))
         #expect(try await client.state().nowPlaying.entry?.song.title == "Beat It")
 
+        try await Task.sleep(for: .seconds(1.5))
         let stats = try await client.stats(.tonight)
         #expect(stats.totalPlays >= 1)
         #expect(stats.topSingers.first?.name == "Léa")

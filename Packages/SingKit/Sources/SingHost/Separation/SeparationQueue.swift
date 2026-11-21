@@ -15,6 +15,10 @@ public actor SeparationQueue {
     var current: SongID?
     var paused = false
     var onProgress: ProgressHandler?
+    /// Lyrics, AI timing, pitch and singer detection; a song is only Ready once this has run.
+    var postProcess: (@Sendable (SongID) async -> Void)?
+
+    public func setPostProcess(_ p: @escaping @Sendable (SongID) async -> Void) { postProcess = p }
 
     public init(library: LibraryStore, paths: SingPaths, modelURL: URL) {
         self.library = library
@@ -76,7 +80,11 @@ public actor SeparationQueue {
     private func process(_ id: SongID) async {
         guard let song = try? await library.song(id) else { return }
         if isReady(song) {
-            try? await library.update(id) { $0.readiness = .ready }
+            if song.readiness != .ready {
+                onProgress?(id, 0.7, .processing)
+                await postProcess?(id)
+                try? await library.update(id) { $0.readiness = .ready }
+            }
             onProgress?(id, 1, .ready)
             return
         }
@@ -88,7 +96,7 @@ public actor SeparationQueue {
             let handler = onProgress
             let audio = try StereoAudio.load(URL(fileURLWithPath: song.filePath))
             let vocals = try separator.separateVocals(audio) { p in
-                handler?(id, p * 0.95, .processing)
+                handler?(id, p * 0.7, .processing)
                 return true
             }
             let instrumental = StereoAudio(
@@ -99,6 +107,8 @@ public actor SeparationQueue {
             try FileManager.default.createDirectory(at: paths.songCache(song.audioHash), withIntermediateDirectories: true)
             try vocals.write(to: paths.vocals(song.audioHash))
             try instrumental.write(to: paths.instrumental(song.audioHash))
+            onProgress?(id, 0.7, .processing)
+            await postProcess?(id)
             try await library.update(id) { $0.readiness = .ready }
             onProgress?(id, 1, .ready)
         } catch {
