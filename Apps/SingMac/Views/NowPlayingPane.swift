@@ -1,3 +1,4 @@
+import AppKit
 import SingCore
 import SingDesign
 import SingHost
@@ -140,6 +141,20 @@ struct NowPlayingPane: View {
                 Toggle("Microphone", isOn: $host.settings.playback.micEnabled)
                 Spacer()
                 MicMeter(level: host.micLevel)
+            }
+            if let msg = host.micStateText {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(msg, systemImage: "mic.slash.fill").font(.callout)
+                    HStack {
+                        Button("Reset microphone permission") { host.resetMicPermission() }
+                        Button("Open Privacy Settings") {
+                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
+                        }
+                    }
+                    .buttonStyle(.glass)
+                }
+                .padding(12)
+                .glassEffect(.regular.tint(.orange.opacity(0.3)), in: RoundedRectangle(cornerRadius: 16))
             }
             LabeledSlider(title: "Mic volume", value: $host.settings.playback.micGain, format: { "\(Int($0 * 100))%" })
             LabeledSlider(title: "Reverb", value: $host.settings.playback.micReverb, format: { "\(Int($0 * 100))%" })

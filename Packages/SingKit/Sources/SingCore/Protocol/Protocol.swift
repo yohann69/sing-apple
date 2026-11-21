@@ -127,6 +127,7 @@ public struct LiveState: Codable, Sendable, Hashable {
     public var singers: [Singer]
     public var session: SessionInfo?
     public var requests: [SongRequest] = []
+    public var mic: MicStatus? = nil
     /// Separation progress keyed by song id as a string, so JSON keeps an object.
     public var preparingByID: [String: Double]
 
@@ -134,8 +135,9 @@ public struct LiveState: Codable, Sendable, Hashable {
         Dictionary(uniqueKeysWithValues: preparingByID.compactMap { k, v in SongID(k).map { ($0, v) } })
     }
 
-    public init(nowPlaying: NowPlaying = NowPlaying(), queue: [QueueEntry] = [], settings: SingSettings = SingSettings(), singers: [Singer] = [], session: SessionInfo? = nil, preparing: [SongID: Double] = [:], requests: [SongRequest] = []) {
+    public init(nowPlaying: NowPlaying = NowPlaying(), queue: [QueueEntry] = [], settings: SingSettings = SingSettings(), singers: [Singer] = [], session: SessionInfo? = nil, preparing: [SongID: Double] = [:], requests: [SongRequest] = [], mic: MicStatus? = nil) {
         self.requests = requests
+        self.mic = mic
         self.nowPlaying = nowPlaying
         self.queue = queue
         self.settings = settings
@@ -281,5 +283,20 @@ extension ClientMessage: Codable {
         case .dismissRequest(let id): try c.encode("dismissRequest", forKey: .type); try c.encode(EntryRef(entryID: id), forKey: .data)
         case .ping: try c.encode("ping", forKey: .type)
         }
+    }
+}
+
+public struct MicStatus: Codable, Sendable, Hashable {
+    public enum State: String, Codable, Sendable { case off, needsPermission, denied, silent, running, failed }
+    public var state: State
+    public var deviceName: String?
+    public var level: Float
+    public var message: String?
+
+    public init(state: State, deviceName: String? = nil, level: Float = 0, message: String? = nil) {
+        self.state = state
+        self.deviceName = deviceName
+        self.level = level
+        self.message = message
     }
 }

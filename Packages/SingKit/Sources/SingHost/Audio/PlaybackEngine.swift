@@ -147,9 +147,14 @@ public final class MicEngine {
     private let engine = AVAudioEngine()
     private let reverb = AVAudioUnitReverb()
     private let eq = AVAudioUnitEQ(numberOfBands: 2)
+    private let inputMixer = AVAudioMixerNode()
+    private var aggregate: AudioDeviceID?
     private var configured = false
     public private(set) var isRunning = false
     public var level: Float { meter.value }
+    /// Loudest sample since the mic started; exactly zero means macOS is feeding silence (access blocked).
+    public var peakSinceStart: Float { meter.peak }
+    public private(set) var deviceName: String?
     private let meter = LevelMeter()
     public let livePitch = LivePitch()
     private var inputUID: String?
@@ -181,34 +186,53 @@ public final class MicEngine {
 
     public func start() throws {
         guard !isRunning else { return }
-        if let dev = AudioDevices.device(uid: inputUID) ?? AudioDevices.defaultDevice(input: true).flatMap({ id in AudioDevices.all().first { $0.id == id } }) {
-            if let unit = engine.inputNode.audioUnit { AudioDevices.assign(dev.id, to: unit) }
-            AudioDevices.setBufferSize(dev.id, frames: 128)
-        }
-        if let out = AudioDevices.device(uid: outputUID), let unit = engine.outputNode.audioUnit {
-            AudioDevices.assign(out.id, to: unit)
+        // On macOS one engine drives one device: a chosen mic and output are joined in a private aggregate.
+        let inDev = AudioDevices.device(uid: inputUID)
+        let outDev = AudioDevices.device(uid: outputUID)
+        let defaultIn = AudioDevices.defaultDevice(input: true).flatMap { id in AudioDevices.all().first { $0.id == id } }
+        deviceName = (inDev ?? defaultIn)?.name
+        if inDev != nil || outDev != nil {
+            let i = inDev ?? defaultIn
+            let o = outDev ?? AudioDevices.defaultDevice(input: false).flatMap { id in AudioDevices.all().first { $0.id == id } }
+            if let i, let o, let unit = engine.outputNode.audioUnit {
+                if i.id == o.id {
+                    AudioDevices.assign(o.id, to: unit)
+                } else if let agg = AudioDevices.makeAggregate(inputUID: i.uid, outputUID: o.uid) {
+                    aggregate = agg
+                    AudioDevices.assign(agg, to: unit)
+                }
+            }
         }
         let format = engine.inputNode.outputFormat(forBus: 0)
         guard format.channelCount > 0, format.sampleRate > 0 else { throw SeparationError.badAudio("no microphone") }
         let input = engine.inputNode
         let mixer = engine.mainMixerNode
         let tapBlock = Self.tap(meter, pitch: livePitch, sampleRate: format.sampleRate)
-        let eq = self.eq, reverb = self.reverb, engine = self.engine, attach = !configured
+        let eq = self.eq, reverb = self.reverb, engine = self.engine, inMixer = self.inputMixer, attach = !configured
+        let stereo = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: 2)!
         try objc {
             if attach {
+                engine.attach(inMixer)
                 engine.attach(eq)
                 engine.attach(reverb)
             }
-            engine.connect(input, to: eq, format: format)
-            engine.connect(eq, to: reverb, format: format)
-            engine.connect(reverb, to: mixer, format: format)
+            engine.connect(input, to: inMixer, format: format)
+            engine.connect(inMixer, to: eq, format: stereo)
+            engine.connect(eq, to: reverb, format: stereo)
+            engine.connect(reverb, to: mixer, format: stereo)
             input.removeTap(onBus: 0)
             input.installTap(onBus: 0, bufferSize: 1024, format: format, block: tapBlock)
         }
         configured = true
         engine.mainMixerNode.outputVolume = Float(gain)
         engine.prepare()
-        try engine.start()
+        do {
+            try engine.start()
+        } catch {
+            if let aggregate { AudioDevices.destroyAggregate(aggregate) }
+            aggregate = nil
+            throw error
+        }
         isRunning = true
     }
 
@@ -218,6 +242,9 @@ public final class MicEngine {
         engine.stop()
         isRunning = false
         meter.value = 0
+        meter.reset()
+        if let aggregate { AudioDevices.destroyAggregate(aggregate) }
+        aggregate = nil
     }
 
     nonisolated static func tap(_ meter: LevelMeter, pitch: LivePitch, sampleRate: Double) -> AVAudioNodeTapBlock {
@@ -234,9 +261,12 @@ public final class MicEngine {
 final class LevelMeter: @unchecked Sendable {
     private let lock = NSLock()
     private var _value: Float = 0
+    private var _peak: Float = 0
     var value: Float {
         get { lock.withLock { _value } }
-        set { lock.withLock { _value = newValue } }
+        set { lock.withLock { _value = newValue; _peak = max(_peak, newValue) } }
     }
+    var peak: Float { lock.withLock { _peak } }
+    func reset() { lock.withLock { _peak = 0 } }
 }
 #endif
