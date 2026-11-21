@@ -127,9 +127,11 @@ struct WordView: View {
     var sung: Color
     var dim: Color
     var glow: Color
+    var glowRadius: CGFloat = 16
 
     var body: some View {
         let active = progress > 0 && progress < 1
+        let glowOpacity = active ? 0.85 : (progress >= 1 ? 0.18 : 0)
         Text(text)
             .font(font)
             .foregroundStyle(dim)
@@ -137,16 +139,39 @@ struct WordView: View {
                 Text(text)
                     .font(font)
                     .foregroundStyle(sung)
-                    .mask(alignment: .leading) {
-                        GeometryReader { g in
-                            LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.85), .init(color: .clear, location: 1)], startPoint: .leading, endPoint: .trailing)
-                                .frame(width: g.size.width * 1.15 * progress + (progress >= 1 ? 40 : 0))
-                        }
-                    }
-                    .shadow(color: glow.opacity(progress > 0 ? 0.4 : 0), radius: 14)
+                    .mask(alignment: .leading) { WipeMask(progress: progress, feather: 0.18) }
             }
-            .offset(y: active ? -3 : (progress >= 1 ? -1 : 0))
-            .animation(.spring(response: 0.35, dampingFraction: 0.7), value: active)
+            .background {
+                // The glow is a blurred copy with room around it, so it never stops at the text's box.
+                Text(text)
+                    .font(font)
+                    .foregroundStyle(glow)
+                    .padding(glowRadius * 2)
+                    .mask(alignment: .leading) { WipeMask(progress: progress, feather: 0.25, inset: glowRadius * 2) }
+                    .blur(radius: glowRadius)
+                    .opacity(glowOpacity)
+                    .allowsHitTesting(false)
+            }
+            .scaleEffect(active ? 1.035 : 1, anchor: .bottom)
+            .offset(y: active ? -2 : 0)
+            .animation(.spring(response: 0.45, dampingFraction: 0.75), value: active)
             .fixedSize()
+    }
+}
+
+/// A left-to-right reveal with a soft leading edge.
+struct WipeMask: View {
+    var progress: Double
+    var feather: Double
+    var inset: CGFloat = 0
+
+    var body: some View {
+        GeometryReader { g in
+            let inner = max(1, g.size.width - inset * 2)
+            let edge = inner * feather
+            let reach = inset + (inner + edge) * progress
+            LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: max(0, (reach - edge) / max(reach, 1))), .init(color: .clear, location: 1)], startPoint: .leading, endPoint: .trailing)
+                .frame(width: progress >= 1 ? g.size.width : max(0, reach))
+        }
     }
 }
