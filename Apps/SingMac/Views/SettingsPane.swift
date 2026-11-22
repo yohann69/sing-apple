@@ -17,6 +17,12 @@ struct SettingsPane: View {
     @State private var profiles: [SettingsProfile] = []
     @State private var profileName = ""
     @State private var pickingVideo = false
+    @State private var pickingRelink = false
+    @State private var pickingCache = false
+    @State private var clapping = false
+    @State private var toolStatus: String?
+    @State private var duplicates: [[SongSummary]] = []
+    @State private var modelsTick = 0
     @State private var exporting = false
     @State private var confirmReset = false
 
@@ -110,6 +116,54 @@ struct SettingsPane: View {
             } header: { Text("Backups") } footer: {
                 Text("A copy of the history, singers, favorites and settings is made every day; the last seven are kept. Erasing keeps your music files.")
             }
+            Section {
+                LabeledContent("Room latency (clap test)", value: host.settings.playback.roundTripLatencyMs > 0 ? "\(Int(host.settings.playback.roundTripLatencyMs)) ms" : "Not measured")
+                HStack {
+                    Button(clapping ? "Clap with each click…" : "Run the clap test") {
+                        clapping = true
+                        Task {
+                            do { toolStatus = "Measured \(Int(try await host.clapTest())) ms" } catch { toolStatus = error.localizedDescription }
+                            clapping = false
+                        }
+                    }.disabled(clapping)
+                    if let toolStatus { Text(toolStatus).foregroundStyle(.secondary) }
+                }
+                Picker("Nightly upkeep", selection: $host.settings.system.maintenanceHour) {
+                    Text("Off").tag(Int?.none)
+                    ForEach([1, 2, 3, 4, 5, 6], id: \.self) { Text("\($0):00").tag(Optional($0)) }
+                }
+                Toggle("Fill missing year, genre and artwork from MusicBrainz", isOn: $host.settings.system.musicBrainz)
+                HStack {
+                    Button("Check caches now") { Task { let n = await host.integrityCheck(); toolStatus = n == 0 ? "Every cache is fine" : "Rebuilding \(n) song(s)" } }
+                    Button("Find moved music…") { pickingRelink = true }
+                    Button("Find duplicates") { Task { duplicates = await host.findDuplicates(); toolStatus = duplicates.isEmpty ? "No duplicates" : "\(duplicates.count) group(s) found" } }
+                    Button("Fill metadata now") { Task { await host.enrichMetadata(limit: 100); toolStatus = "Metadata updated" } }
+                }
+                ForEach(Array(duplicates.enumerated()), id: \.offset) { _, g in
+                    Text(g.map { "\($0.title) (\($0.artist))" }.joined(separator: "  ≈  ")).font(.callout)
+                }
+                HStack {
+                    LabeledContent("Song caches", value: host.cacheLocation.path)
+                    Button("Move…") { pickingCache = true }
+                }
+                Button("Show logs") { NSWorkspace.shared.open(HostController.logsFolder) }
+            } header: { Text("Upkeep and tools") } footer: {
+                Text("The nightly upkeep processes the library, checks and cleans the caches, and backs up while nobody sings. Moving the caches takes effect after Sing! restarts.")
+            }
+            Section("AI models") {
+                ForEach(host.installedModels()) { m in
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(m.name)
+                            Text("\(m.task) · \(ByteCountFormatter.string(fromByteCount: m.bytes, countStyle: .file))").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Remove", role: .destructive) { host.removeModel(m.name); modelsTick += 1 }
+                    }
+                }
+                Button("Reinstall the models shipped with Sing!") { host.reinstallBundledModels(); modelsTick += 1 }
+            }
+            .id(modelsTick)
             Section("Vocal separation") {
                 LabeledContent("Model", value: host.modelAvailable ? "HTDemucs (Core ML)" : "Not installed")
                 if !host.modelAvailable {
@@ -123,6 +177,12 @@ struct SettingsPane: View {
         .fileImporter(isPresented: $pickingFolder, allowedContentTypes: [.folder]) { r in
             if case .success(let url) = r { host.watchFolder = url }
         }
+        .background(EmptyView().fileImporter(isPresented: $pickingRelink, allowedContentTypes: [.folder]) { r in
+            if case .success(let url) = r { Task { let n = await host.relink(folder: url); toolStatus = "Found \(n) moved song(s)" } }
+        })
+        .background(EmptyView().fileImporter(isPresented: $pickingCache, allowedContentTypes: [.folder]) { r in
+            if case .success(let url) = r { Task { do { try await host.moveCache(to: url); toolStatus = "Caches moved; restart Sing! to use them" } catch { toolStatus = error.localizedDescription } } }
+        })
         .background(EmptyView().fileImporter(isPresented: $pickingVideo, allowedContentTypes: [.movie]) { r in
             if case .success(let url) = r { host.tvVideoURL = url; host.settings.tv.background = .video }
         })

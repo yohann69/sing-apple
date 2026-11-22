@@ -419,7 +419,8 @@ public final class HostController: HostAPI {
     func samplePitch() {
         guard nowPlaying.state == .playing else { return }
         checkLoop()
-        let t = lyricTime
+        let lag = micLag
+        let t = lyricTime - lag
         livePoints.removeAll { $0.time < t - 6 || $0.time > t + 0.5 }
         guardFeedback()
         let cf = settings.playback.crossfadeSeconds

@@ -197,7 +197,7 @@ extension HostController {
 
     // MARK: Logs
 
-    static var logsFolder: URL { FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0].appendingPathComponent("Logs/Sing", isDirectory: true) }
+    public static var logsFolder: URL { FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0].appendingPathComponent("Logs/Sing", isDirectory: true) }
 
     /// Writes uncaught exceptions to ~/Library/Logs/Sing; nothing leaves the Mac.
     public static func installCrashLogging() {
