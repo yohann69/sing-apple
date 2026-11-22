@@ -99,6 +99,7 @@ struct SongSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var chosen = Set<SingerID>()
     @State private var battle = false
+    @State private var smartKey: SmartKey?
 
     var body: some View {
         NavigationStack {
@@ -119,6 +120,15 @@ struct SongSheet: View {
                         .foregroundStyle(.secondary)
                     }
                     RatingBar(songID: song.id)
+                    HStack(spacing: 12) {
+                        Button { model.toggleWish(song.id) } label: {
+                            Label(model.wishIDs.contains(song.id) ? "On my list" : "Want to sing", systemImage: model.wishIDs.contains(song.id) ? "bookmark.fill" : "bookmark")
+                        }
+                        .buttonStyle(.glass)
+                        if let k = smartKey, k.semitones != 0 {
+                            Label(k.reason, systemImage: "music.note").font(.callout).foregroundStyle(.secondary)
+                        }
+                    }
                     VStack(alignment: .leading, spacing: 10) {
                         Text(song.isDuet ? "Who sings? Pick two for this duet" : "Who sings?").font(.headline)
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 10)], spacing: 10) {
@@ -172,6 +182,7 @@ struct SongSheet: View {
         }
         .presentationDetents([.large])
         .onAppear { if let me = model.currentSingerID { chosen = [me] } }
+        .task { if let me = model.currentSingerID { smartKey = try? await model.client?.smartKey(song: song.id, singer: me) } }
     }
 }
 
@@ -217,20 +228,47 @@ struct SuggestionsView: View {
     @Environment(PadModel.self) private var model
     @State private var items: [Suggestion] = []
     @State private var selected: SongSummary?
+    @State private var partner: SingerID?
+    @State private var wishes: [SongSummary] = []
 
     var body: some View {
-        List(items) { s in
-            Button { selected = s.song } label: { SongRow(song: s.song, detail: s.reason) }.buttonStyle(.plain)
+        List {
+            if !wishes.isEmpty {
+                Section {
+                    ForEach(wishes) { s in Button { selected = s } label: { SongRow(song: s, detail: "On your list") }.buttonStyle(.plain) }
+                    Button { Task { if let me = model.currentSingerID, let s = try? await model.client?.queueNextWish(me) { model.toast = "\(s.title) is in the queue"; await load() } } } label: {
+                        Label("Queue the next one", systemImage: "text.badge.plus")
+                    }
+                } header: { Text("Want to sing") }
+            }
+            if model.currentSingerID != nil {
+                Section("Duet with") {
+                    Picker("Partner", selection: $partner) {
+                        Text("Nobody").tag(SingerID?.none)
+                        ForEach(model.state.singers.filter { $0.id != model.currentSingerID }) { Text($0.name).tag(Optional($0.id)) }
+                    }
+                }
+            }
+            Section {
+                ForEach(items) { s in
+                    Button { selected = s.song } label: { SongRow(song: s.song, detail: s.reason) }.buttonStyle(.plain)
+                }
+            }
         }
         .overlay { if items.isEmpty { ContentUnavailableView("No suggestions yet", systemImage: "sparkles", description: Text("Sing a few songs and suggestions get smarter.")) } }
         .navigationTitle(model.currentSinger.map { "For \($0.name)" } ?? "For You")
-        .task(id: model.currentSingerID) { await load() }
+        .task(id: "\(model.currentSingerID ?? 0)-\(partner ?? 0)") { await load() }
         .refreshable { await load() }
         .sheet(item: $selected) { SongSheet(song: $0) }
     }
 
     private func load() async {
-        items = (try? await model.client?.suggestions(singer: model.currentSingerID)) ?? []
+        if let me = model.currentSingerID, let p = partner {
+            items = (try? await model.client?.duetSuggestions(me, p)) ?? []
+        } else {
+            items = (try? await model.client?.suggestions(singer: model.currentSingerID)) ?? []
+        }
+        if let me = model.currentSingerID { wishes = (try? await model.client?.wishes(me)) ?? [] }
     }
 }
 
@@ -337,6 +375,7 @@ struct StatsView: View {
 
 struct PadSettingsView: View {
     @Environment(PadModel.self) private var model
+    @State private var profiles: [SettingsProfile] = []
 
     var body: some View {
         Form {
@@ -356,7 +395,17 @@ struct PadSettingsView: View {
             } footer: {
                 Text("Translated on the Mac with on-device AI, shown under each line on this device.")
             }
+            if let me = model.currentSinger {
+                Section { NavigationLink { MyProfileView(singer: me) } label: { Label("My profile: \(me.name)", systemImage: "person.crop.circle") } }
+            }
             if model.isHost {
+                Section("Quick settings") {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack {
+                            ForEach(profiles) { p in Button(p.name) { Task { try? await model.client?.applySettingsProfile(p.name); model.toast = "\(p.name) settings on" } }.buttonStyle(.glass) }
+                        }
+                    }
+                }
                 let tv = Binding(get: { model.state.settings.tv }, set: { v in model.updateSettings { $0.tv = v } })
                 let all = Binding(get: { model.state.settings }, set: { v in model.updateSettings { $0 = v } })
                 Section {
@@ -371,7 +420,10 @@ struct PadSettingsView: View {
             }
         }
         .navigationTitle("Settings")
-        .task { await model.loadLanguages() }
+        .task {
+            await model.loadLanguages()
+            if model.isHost { profiles = (try? await model.client?.settingsProfiles()) ?? [] }
+        }
     }
 
     private var statusText: String {
@@ -421,6 +473,7 @@ struct OwnerAreaView: View {
     @State private var error: String?
     @State private var working: SingSettings?
     @State private var confirm: ClearCacheRequest?
+    @State private var audit: [AuditEntry] = []
 
     var body: some View {
         Form {
@@ -432,6 +485,13 @@ struct OwnerAreaView: View {
                 } header: { Text("Owner PIN") } footer: { Text("Set on the Mac in Settings, Owner.") }
             } else if let overview {
                 StorageDashboard(report: overview.storage) { confirm = $0 }
+                if working != nil {
+                    LocksSection(locks: Binding(get: { working?.locks ?? [:] }, set: { v in
+                        working?.locks = v
+                        if let w = working { Task { try? await model.client?.updateOwnerSettings(w) } }
+                    }))
+                }
+                AuditLogSection(entries: audit)
                 PadListSection(pads: overview.pads) { p in
                     Task { try? await model.client?.unpair(padID: p.id); await load() }
                 }
@@ -479,6 +539,7 @@ struct OwnerAreaView: View {
         guard let client = model.client else { return }
         do {
             overview = try await client.ownerOverview()
+            audit = (try? await client.auditLog()) ?? []
             var s = model.state.settings
             if let o = overview { s.services = o.services }
             working = s
@@ -555,5 +616,32 @@ struct PadSongSettings: View {
         }
         .navigationTitle(song.title)
         .task { settings = try? await model.client?.songSettings(song.id) }
+    }
+}
+
+/// The current singer's own profile: privacy, sound, PIN and their year.
+struct MyProfileView: View {
+    var singer: Singer
+    @Environment(PadModel.self) private var model
+    @State private var prefs = SingerPrefs()
+    @State private var pin = ""
+    @State private var year: YearInKaraoke?
+
+    var body: some View {
+        Form {
+            if let year { Section { YearRecapCard(year: year) } }
+            SingerPrefsForm(prefs: Binding(get: { prefs }, set: { v in
+                prefs = v
+                Task { do { try await model.client?.updateSingerPrefs(singer.id, v) } catch { model.toast = error.localizedDescription } }
+            }))
+            Section {
+                SecureField(prefs.hasPIN ? "PIN set, type a new one" : "Add a PIN", text: $pin).keyboardType(.numberPad)
+                Button(prefs.hasPIN ? "Change PIN" : "Set PIN") { Task { try? await model.client?.setSingerPIN(singer.id, pin: pin); pin = ""; prefs.hasPIN = true } }.disabled(pin.count < 4)
+                if prefs.hasPIN { Button("Remove PIN", role: .destructive) { Task { try? await model.client?.setSingerPIN(singer.id, pin: nil); prefs.hasPIN = false } } }
+            } header: { Text("Profile PIN") } footer: { Text("Nobody else can queue songs or change settings as you without it.") }
+        }
+        .navigationTitle(singer.name)
+        .onAppear { prefs = singer.prefs ?? SingerPrefs() }
+        .task { year = (try? await model.client?.singerStats(singer.id))?.year }
     }
 }

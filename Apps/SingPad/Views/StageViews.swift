@@ -168,6 +168,7 @@ struct SearchPanel: View {
     @State private var requesting: CatalogTrack?
     @State private var loading = false
     @State private var humResults: [SongSummary]?
+    @State private var askMode = false
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -190,6 +191,7 @@ struct SearchPanel: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     chip("Ready now", filters.readyOnly) { filters.readyOnly.toggle() }
+                    chip("✨ Ask", askMode) { askMode.toggle() }
                     chip("Favorites", filters.favoritesOf != nil) { filters.favoritesOf = filters.favoritesOf == nil ? model.currentSingerID : nil }
                     chip("Duets", filters.duetOnly) { filters.duetOnly.toggle() }
                     ForEach([1980, 1990, 2000, 2010, 2020], id: \.self) { d in
@@ -244,11 +246,13 @@ struct SearchPanel: View {
         }
         .padding(14)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 30))
-        .task(id: "\(query)|\(filters.readyOnly)|\(filters.duetOnly)|\(filters.decade ?? 0)|\(filters.favoritesOf ?? 0)|\(model.ratings.count)") {
+        .task(id: "\(query)|\(filters.readyOnly)|\(filters.duetOnly)|\(filters.decade ?? 0)|\(filters.favoritesOf ?? 0)|\(model.ratings.count)|\(askMode)") {
             try? await Task.sleep(for: .milliseconds(220))
             guard let client = model.client, !query.isEmpty || filters.favoritesOf != nil else { return }
             loading = true
-            if let r = try? await client.search(query, filters: filters) { results = r }
+            if askMode, !query.isEmpty {
+                if let r = try? await client.ask(query) { results = r }
+            } else if let r = try? await client.search(query, filters: filters) { results = r }
             loading = false
         }
         .task(id: model.currentSingerID) {
@@ -417,6 +421,7 @@ struct MixerSheet: View {
                         Button { loopLines(4) } label: { Label("Loop the next four lines", systemImage: "repeat") }
                     }
                 } header: { Text("Practice") } footer: { Text("A practice loop is not saved to the stats or recorded.") }
+                MicSettingsSection(playback: Binding(get: { model.state.settings.playback }, set: { v in model.updateSettings { $0.playback = v } }), channels: max(1, model.meters.count))
                 Section("Next songs") {
                     slider("Default guide vocal", "person.wave.2.fill", binding({ $0.defaultGuideVocal }) { $0.defaultGuideVocal = $1 })
                 }

@@ -120,6 +120,31 @@ public struct SingAPIClient: Sendable {
 
     public func displayPitch(_ id: SongID) async throws -> PitchTrack { try await get("v1/songs/\(id)/pitch") }
 
+    public func ask(_ sentence: String) async throws -> SearchResponse { try await get("v1/ask", query: [URLQueryItem(name: "q", value: sentence)]) }
+    public func duetSuggestions(_ a: SingerID, _ b: SingerID) async throws -> [Suggestion] {
+        try await get("v1/suggestions/duet", query: [URLQueryItem(name: "a", value: String(a)), URLQueryItem(name: "b", value: String(b))])
+    }
+    public func smartKey(song: SongID, singer: SingerID) async throws -> SmartKey {
+        try await get("v1/songs/\(song)/smartkey", query: [URLQueryItem(name: "singer", value: String(singer))])
+    }
+    public func updateSingerPrefs(_ id: SingerID, _ p: SingerPrefs) async throws { let _: [String: Bool] = try await send("v1/singers/\(id)/prefs", method: "PUT", body: p) }
+    public func setSingerPIN(_ id: SingerID, pin: String?) async throws { let _: [String: Bool] = try await send("v1/singers/\(id)/pin", method: "POST", body: SingerPINRequest(pin: pin)) }
+    public func unlockSinger(_ id: SingerID, pin: String) async throws { let _: [String: Bool] = try await send("v1/singers/\(id)/unlock", method: "POST", body: SingerPINRequest(pin: pin)) }
+    public func mergeSingers(from: SingerID, into: SingerID) async throws { let _: [String: Bool] = try await send("v1/singers/merge", method: "POST", body: MergeSingers(from: from, into: into)) }
+    public func wishes(_ singer: SingerID) async throws -> [SongSummary] { try await get("v1/singers/\(singer)/wishes") }
+    public func setWish(_ singer: SingerID, song: SongID, on: Bool) async throws {
+        let _: [String: Bool] = try await send("v1/singers/\(singer)/wishes/\(song)", method: on ? "PUT" : "DELETE", body: [String: String]())
+    }
+    public func queueNextWish(_ singer: SingerID) async throws -> SongSummary? {
+        let r: SearchResponse = try await send("v1/singers/\(singer)/wishes/next", method: "POST", body: [String: String]())
+        return r.songs.first
+    }
+    public func settingsProfiles() async throws -> [SettingsProfile] { try await get("v1/settings/profiles") }
+    public func applySettingsProfile(_ name: String) async throws {
+        let _: [String: Bool] = try await send("v1/settings/profiles/\(name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name)/apply", method: "POST", body: [String: String]())
+    }
+    public func auditLog() async throws -> [AuditEntry] { try await get("v1/owner/audit") }
+
     public func recap() async throws -> PartyRecap { try await get("v1/recap") }
     public func songSettings(_ id: SongID) async throws -> SongSettings { try await get("v1/songs/\(id)/settings") }
     @discardableResult

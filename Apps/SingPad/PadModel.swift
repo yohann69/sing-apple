@@ -27,13 +27,43 @@ final class PadModel {
     var currentSingerID: SingerID? {
         didSet {
             UserDefaults.standard.set(currentSingerID, forKey: "currentSinger")
-            Task { await loadRatings() }
+            Task { await loadRatings(); await loadWishes() }
         }
     }
     /// The current singer's thumbs, favorites and never-suggest marks, by song.
     var ratings: [SongID: SongRating] = [:]
     /// Granted by the owner PIN; kept in memory only.
     var ownerToken: String?
+    var meters: [Float] = []
+    var wishIDs = Set<SongID>()
+    var pinFor: Singer?
+
+    func loadWishes() async {
+        guard let id = currentSingerID, let list = try? await client?.wishes(id) else { wishIDs = []; return }
+        wishIDs = Set(list.map(\.id))
+    }
+
+    func toggleWish(_ song: SongID) {
+        guard let singer = currentSingerID else { toast = "Pick who you are first"; return }
+        let on = !wishIDs.contains(song)
+        if on { wishIDs.insert(song) } else { wishIDs.remove(song) }
+        Task { try? await client?.setWish(singer, song: song, on: on) }
+    }
+
+    /// Picks a profile, asking for its PIN first when it has one.
+    func choose(_ s: Singer) {
+        if s.prefs?.hasPIN == true, !isHost { pinFor = s } else { currentSingerID = s.id }
+    }
+
+    func unlock(_ s: Singer, pin: String) async {
+        do {
+            try await client?.unlockSinger(s.id, pin: pin)
+            currentSingerID = s.id
+            pinFor = nil
+        } catch {
+            toast = error.localizedDescription
+        }
+    }
     var upNextAlert: ServerMessage.YoureUp?
     /// This pad's own translation language for the lyrics shown on it.
     var translationLanguage: String? = UserDefaults.standard.string(forKey: "translationLanguage") {
@@ -182,6 +212,8 @@ final class PadModel {
             if u.singerID == currentSingerID, u.songsAway <= 2 { upNextAlert = u }
         case .toast(let t):
             toast = t.message
+        case .meter(let m):
+            meters = m.levels
         case .error(let e):
             toast = e.message
             if e.code == "unauthorized" { disconnect() }
