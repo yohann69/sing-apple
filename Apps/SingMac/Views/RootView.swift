@@ -5,7 +5,7 @@ import SwiftUI
 import Translation
 
 enum Pane: String, CaseIterable, Identifiable {
-    case nowPlaying, queue, library, singers, stats, pads, settings
+    case nowPlaying, queue, library, singers, stats, pads, storage, settings
     var id: String { rawValue }
 
     var title: String {
@@ -16,6 +16,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .singers: "Singers"
         case .stats: "Stats"
         case .pads: "Pads"
+        case .storage: "Storage"
         case .settings: "Settings"
         }
     }
@@ -28,6 +29,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .singers: "person.2.fill"
         case .stats: "chart.bar.xaxis"
         case .pads: "ipad.and.iphone"
+        case .storage: "internaldrive"
         case .settings: "slider.horizontal.3"
         }
     }
@@ -62,6 +64,7 @@ struct RootView: View {
                     case .singers: SingersPane(host: host)
                     case .stats: StatsPane(host: host)
                     case .pads: PadsPane(host: host)
+                    case .storage: StoragePane(host: host)
                     case .settings: SettingsPane(host: host)
                     }
                 }

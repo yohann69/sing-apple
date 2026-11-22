@@ -12,6 +12,7 @@ struct SettingsPane: View {
     @State private var apiStatus: String?
     @State private var pickingFolder = false
     @State private var languages: [LanguageOption] = []
+    @State private var pin = ""
 
     var body: some View {
         Form {
@@ -59,6 +60,17 @@ struct SettingsPane: View {
                     Button("Test connection") { testAPI() }
                     if let apiStatus { Text(apiStatus).foregroundStyle(.secondary) }
                 }
+            }
+            OwnerSettingsSections(settings: $host.settings)
+            Section {
+                LabeledContent("Status", value: host.processingStatus)
+                SecureField("Owner PIN", text: $pin, prompt: Text(host.ownerPINSet ? "PIN set, type a new one" : "No PIN"))
+                HStack {
+                    Button(host.ownerPINSet ? "Change PIN" : "Set PIN") { host.setOwnerPIN(pin); pin = "" }.disabled(pin.count < 4)
+                    if host.ownerPINSet { Button("Remove PIN", role: .destructive) { host.setOwnerPIN(nil) } }
+                }
+            } header: { Text("Owner") } footer: {
+                Text("With a PIN, host pads must enter it before changing storage, lyrics sources, processing, network or unpairing devices. Five wrong tries lock the pad out for a while.")
             }
             Section("Vocal separation") {
                 LabeledContent("Model", value: host.modelAvailable ? "HTDemucs (Core ML)" : "Not installed")

@@ -188,6 +188,7 @@ struct SearchPanel: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     chip("Ready now", filters.readyOnly) { filters.readyOnly.toggle() }
+                    chip("Favorites", filters.favoritesOf != nil) { filters.favoritesOf = filters.favoritesOf == nil ? model.currentSingerID : nil }
                     chip("Duets", filters.duetOnly) { filters.duetOnly.toggle() }
                     ForEach([1980, 1990, 2000, 2010, 2020], id: \.self) { d in
                         chip("\(String(format: "%02d", d % 100))s", filters.decade == d) { filters.decade = filters.decade == d ? nil : d }
@@ -196,7 +197,14 @@ struct SearchPanel: View {
             }
 
             List {
-                if query.isEmpty {
+                if query.isEmpty && filters.favoritesOf != nil {
+                    Section("Favorites") {
+                        ForEach(results.songs) { s in
+                            Button { selected = s } label: { SongRow(song: s) }.buttonStyle(.plain)
+                        }
+                        if results.songs.isEmpty { Text("Tap the heart on a song to keep it here.").opacity(0.7) }
+                    }
+                } else if query.isEmpty {
                     Section(model.currentSinger.map { "For \($0.name)" } ?? "For you") {
                         ForEach(suggestions) { s in
                             Button { selected = s.song } label: { SongRow(song: s.song, detail: s.reason) }.buttonStyle(.plain)
@@ -228,9 +236,9 @@ struct SearchPanel: View {
         }
         .padding(14)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 30))
-        .task(id: "\(query)|\(filters.readyOnly)|\(filters.duetOnly)|\(filters.decade ?? 0)") {
+        .task(id: "\(query)|\(filters.readyOnly)|\(filters.duetOnly)|\(filters.decade ?? 0)|\(filters.favoritesOf ?? 0)|\(model.ratings.count)") {
             try? await Task.sleep(for: .milliseconds(220))
-            guard let client = model.client, !query.isEmpty else { return }
+            guard let client = model.client, !query.isEmpty || filters.favoritesOf != nil else { return }
             loading = true
             if let r = try? await client.search(query, filters: filters) { results = r }
             loading = false

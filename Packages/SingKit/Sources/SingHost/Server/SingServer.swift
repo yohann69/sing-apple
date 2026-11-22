@@ -25,6 +25,16 @@ public protocol HostAPI: AnyObject, Sendable {
     func liveState() async -> LiveState
     func handle(_ message: ClientMessage, from pad: PadIdentity) async throws
     func padConnected(_ pad: PadIdentity, connected: Bool) async
+    func rate(_ r: SongRating) async throws
+    func ratings(singerID: SingerID) async throws -> [SongRating]
+    func unlockOwner(pin: String, pad: PadIdentity) async throws -> OwnerSession
+    func isOwner(_ pad: PadIdentity, token: String?) async -> Bool
+    func ownerOverview() async -> OwnerOverview
+    func storageReport() async -> StorageReport
+    func clearCache(_ req: ClearCacheRequest) async -> ClearCacheResult
+    func revokePad(_ id: String) async
+    func applyOwnerSettings(_ s: SingSettings) async
+    func setPinned(_ id: SongID, _ pinned: Bool) async
 }
 
 public struct NewSinger: Codable, Sendable {
@@ -45,6 +55,13 @@ actor ConnectionHub {
     func pad(_ id: UUID) -> PadIdentity? { clients[id]?.pad }
     func close(_ id: UUID) -> PadIdentity? { clients.removeValue(forKey: id)?.pad }
     var pads: [PadIdentity] { clients.values.compactMap(\.pad) }
+
+    func disconnect(padID: String) {
+        for (id, c) in clients where c.pad?.padID == padID {
+            c.client.close()
+            clients[id] = nil
+        }
+    }
 
     func send(_ message: ServerMessage, to padID: String? = nil) {
         guard let data = try? SingProtocol.encoder().encode(message) else { return }
@@ -78,6 +95,8 @@ public final class SingServer: Sendable {
     }
 
     public func connectedPads() async -> [PadIdentity] { await hub.pads }
+
+    public func disconnect(padID: String) async { await hub.disconnect(padID: padID) }
 
     public func stop() {
         listeners.http?.stop()
@@ -182,7 +201,7 @@ public final class SingServer: Sendable {
                 return json(await api.liveState())
             case ("GET", ["songs"]):
                 let q = req.query
-                let filters = SearchFilters(readyOnly: q["ready"] == "1", duetOnly: q["duet"] == "1", decade: q["decade"].flatMap { Int($0) }, genre: q["genre"], language: q["language"])
+                let filters = SearchFilters(readyOnly: q["ready"] == "1", duetOnly: q["duet"] == "1", decade: q["decade"].flatMap { Int($0) }, genre: q["genre"], language: q["language"], favoritesOf: q["favorites"].flatMap { Int64($0) })
                 return json(try await api.search(q["q"] ?? "", filters: filters))
             case ("GET", let p) where p.count == 3 && p[0] == "songs" && p[2] == "artwork":
                 guard let id = Int64(p[1]), let data = await api.artwork(songID: id) else { return error(404, "notFound", "No artwork") }
@@ -204,6 +223,21 @@ public final class SingServer: Sendable {
                 return json(s)
             case ("GET", ["suggestions"]):
                 return json(try await api.suggestions(singerID: req.query["singer"].flatMap { Int64($0) }))
+            case ("GET", ["ratings"]):
+                guard let id = req.query["singer"].flatMap({ Int64($0) }) else { return error(400, "badRequest", "singer is required") }
+                return json(try await api.ratings(singerID: id))
+            case ("POST", ["ratings"]):
+                let r = try SingProtocol.decoder().decode(SongRating.self, from: req.body)
+                try await api.rate(r)
+                return json(r)
+            case ("POST", ["owner", "unlock"]):
+                let body = try SingProtocol.decoder().decode(OwnerUnlock.self, from: req.body)
+                return json(try await api.unlockOwner(pin: body.pin, pad: pad))
+            case (_, let p) where p.first == "owner":
+                guard await api.isOwner(pad, token: req.headers["x-sing-owner"] ?? req.query["owner"]) else {
+                    return error(403, "owner", "Enter the owner PIN to open this.")
+                }
+                return try await ownerRoute(req, Array(p.dropFirst()), api: api)
             default:
                 return error(404, "notFound", "Unknown path")
             }
@@ -213,6 +247,31 @@ public final class SingServer: Sendable {
             return error(400, "rejected", e.errorDescription ?? "\(e)")
         } catch {
             return self.error(400, "badRequest", "\(error)")
+        }
+    }
+}
+
+extension SingServer {
+    static func ownerRoute(_ req: HTTPRequest, _ p: [String], api: any HostAPI) async throws -> HTTPResponse {
+        switch (req.method, p) {
+        case ("GET", []):
+            return json(await api.ownerOverview())
+        case ("GET", ["storage"]):
+            return json(await api.storageReport())
+        case ("POST", ["storage", "clear"]):
+            return json(await api.clearCache(try SingProtocol.decoder().decode(ClearCacheRequest.self, from: req.body)))
+        case ("PUT", ["settings"]):
+            await api.applyOwnerSettings(try SingProtocol.decoder().decode(SingSettings.self, from: req.body))
+            return json(await api.liveState().settings)
+        case ("DELETE", let q) where q.count == 2 && q[0] == "pads":
+            await api.revokePad(q[1])
+            return json(["ok": true])
+        case ("POST", let q) where q.count == 3 && q[0] == "songs" && (q[2] == "pin" || q[2] == "unpin"):
+            guard let id = Int64(q[1]) else { return error(400, "badRequest", "Bad song id") }
+            await api.setPinned(id, q[2] == "pin")
+            return json(["ok": true])
+        default:
+            return error(404, "notFound", "Unknown path")
         }
     }
 }

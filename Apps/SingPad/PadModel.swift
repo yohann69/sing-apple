@@ -25,8 +25,15 @@ final class PadModel {
     var lyricsSongID: SongID?
     var toast: String?
     var currentSingerID: SingerID? {
-        didSet { UserDefaults.standard.set(currentSingerID, forKey: "currentSinger") }
+        didSet {
+            UserDefaults.standard.set(currentSingerID, forKey: "currentSinger")
+            Task { await loadRatings() }
+        }
     }
+    /// The current singer's thumbs, favorites and never-suggest marks, by song.
+    var ratings: [SongID: SongRating] = [:]
+    /// Granted by the owner PIN; kept in memory only.
+    var ownerToken: String?
     var upNextAlert: ServerMessage.YoureUp?
     /// This pad's own translation language for the lyrics shown on it.
     var translationLanguage: String? = UserDefaults.standard.string(forKey: "translationLanguage") {
@@ -46,7 +53,29 @@ final class PadModel {
     @ObservationIgnored private var browser: ServerBrowser?
     @ObservationIgnored private var artworkCache: [SongID: UIImage] = [:]
 
-    var client: SingAPIClient? { saved.map { SingAPIClient(endpoint: $0.endpoint, token: $0.token) } }
+    var client: SingAPIClient? {
+        saved.map { var c = SingAPIClient(endpoint: $0.endpoint, token: $0.token); c.ownerToken = ownerToken; return c }
+    }
+
+    func loadRatings() async {
+        guard let id = currentSingerID, let list = try? await client?.ratings(singer: id) else { ratings = [:]; return }
+        ratings = Dictionary(uniqueKeysWithValues: list.map { ($0.songID, $0) })
+    }
+
+    func isFavorite(_ id: SongID) -> Bool { ratings[id]?.favorite ?? false }
+
+    func rate(_ song: SongID, _ change: (inout SongRating) -> Void) {
+        guard let singer = currentSingerID else { toast = "Pick who you are first"; return }
+        var r = ratings[song] ?? SongRating(songID: song, singerID: singer)
+        change(&r)
+        ratings[song] = r
+        Task { try? await client?.rate(r) }
+    }
+
+    func unlockOwner(pin: String) async throws {
+        guard let client else { throw ClientError("Not connected") }
+        ownerToken = try await client.unlockOwner(pin: pin).ownerToken
+    }
     var isHost: Bool { saved?.role == .host }
     var currentSinger: Singer? { state.singers.first { $0.id == currentSingerID } }
 
@@ -112,6 +141,7 @@ final class PadModel {
 
     func connect() {
         guard let saved, let url = client?.liveURL else { return }
+        Task { await loadRatings() }
         live?.stop()
         connection = .connecting
         let conn = LiveConnection(url: url, token: saved.token) { [weak self] msg in

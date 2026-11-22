@@ -47,16 +47,27 @@ public final class HostController: HostAPI {
     public private(set) var singers: [Singer] = []
     public private(set) var session: SessionInfo?
     public private(set) var preparing: [SongID: Double] = [:]
-    public private(set) var connectedPads: [PadIdentity] = []
+    public internal(set) var connectedPads: [PadIdentity] = []
     public private(set) var importProgress: (done: Int, total: Int)?
-    public private(set) var lastError: String?
+    public internal(set) var lastError: String?
     public private(set) var countdownEnd: Date?
     public private(set) var serverRunning = false
+    @ObservationIgnored var ownerPINHash: String?
+    @ObservationIgnored var ownerTokens: [String: Date] = [:]
+    @ObservationIgnored var pinAttempts: [String: AttemptGuard] = [:]
+    @ObservationIgnored var pairGuard = AttemptGuard()
+    @ObservationIgnored var evicted = Set<SongID>()
+    @ObservationIgnored var lowDiskWarned = false
+    @ObservationIgnored var processingStartedAt: Date?
+    @ObservationIgnored var lastStorageCheck = Date.distantPast
+    public internal(set) var processingHeld = false
+    public internal(set) var restUntil: Date?
     public var hostCode: String
     public var guestCode: String
     public var settings: SingSettings {
         didSet {
             guard settings != oldValue else { return }
+            if settings.network.bonjourName != oldValue.network.bonjourName { readvertise() }
             applySettings()
             persistSettings()
             scheduleBroadcast()
@@ -79,7 +90,6 @@ public final class HostController: HostAPI {
 
     public init(paths: SingPaths = .default, modelURL: URL? = nil, port: Int = SingProtocol.defaultPort, advertise: Bool = true) throws {
         self.paths = paths
-        self.requestedPort = port
         self.advertise = advertise
         try paths.ensure()
         Self.installBundledModels(into: paths.models)
@@ -91,6 +101,7 @@ public final class HostController: HostAPI {
         let stored = try? database.writer.read { try SettingRecord.fetchOne($0, key: "settings") }
         let initial = stored.flatMap { try? SingProtocol.decoder().decode(SingSettings.self, from: Data($0.json.utf8)) } ?? SingSettings()
         settings = initial
+        self.requestedPort = port == SingProtocol.defaultPort ? initial.network.port : port
         let code = UserDefaults.standard.string(forKey: "hostCode") ?? Self.newCode()
         hostCode = code
         guestCode = Self.newCode()
@@ -153,6 +164,8 @@ public final class HostController: HostAPI {
         await reloadLibrary()
         await reloadSingers()
         await loadRequests()
+        await loadOwnerPIN()
+        await loadEvicted()
         await restoreQueue()
         startServer()
         startWatching()
@@ -162,7 +175,7 @@ public final class HostController: HostAPI {
                 await self?.tick()
             }
         }
-        let pending = songs.filter { $0.readiness != .ready && $0.readiness != .missingFile }.map(\.id)
+        let pending = songs.filter { $0.readiness != .ready && $0.readiness != .missingFile && !evicted.contains($0.id) }.map(\.id)
         let env = ProcessInfo.processInfo.environment
         if modelAvailable, env["SING_NO_SEP"] == nil { await separation.enqueueBackground(pending) }
         Task { await upgradeLyricsInBackground() }
@@ -176,7 +189,7 @@ public final class HostController: HostAPI {
             do {
                 try await server.start()
                 serverRunning = true
-                if advertise { bonjour.start(name: serverName, port: server.port) }
+                if advertise { bonjour.start(name: advertisedName, port: server.port) }
             } catch {
                 serverRunning = false
                 lastError = "Pads cannot connect: port \(server.port) is busy (\(error.localizedDescription))."
@@ -282,6 +295,7 @@ public final class HostController: HostAPI {
             preparing[id] = nil
         } else {
             preparing[id] = p
+            if processingStartedAt == nil { processingStartedAt = .now }
         }
         if let i = songs.firstIndex(where: { $0.id == id }) {
             songs[i].readiness = r
@@ -412,6 +426,7 @@ public final class HostController: HostAPI {
         let entry = QueueEntry(song: summary(record), singers: chosen, addedBy: pad)
         try queue.add(entry, playNext: playNext, maxPerSinger: settings.queue.maxQueuedPerSinger)
         await logQueueEvent("added", songID: songID, singers: singerIDs, pad: pad)
+        if evicted.remove(songID) != nil { saveEvicted() }
         await separation.prioritize(songID)
         persistQueue()
         scheduleBroadcast()
@@ -708,6 +723,12 @@ public final class HostController: HostAPI {
         }
         await server?.broadcast(.position(.init(positionMs: nowPlaying.positionMs, at: nowPlaying.positionAt, lineIndex: idx)))
         connectedPads = await server?.connectedPads() ?? []
+        if preparing.isEmpty { processingStartedAt = nil }
+        updateProcessingHold()
+        if Date.now.timeIntervalSince(lastStorageCheck) > 300 {
+            lastStorageCheck = .now
+            Task { await enforceStorageLimits() }
+        }
     }
 
     // MARK: History
@@ -861,9 +882,16 @@ public final class HostController: HostAPI {
         guard request.protocolVersion >= SingProtocol.minimumSupportedVersion else {
             throw ErrorBody(code: "version", message: "Update the Sing! app on this device to connect to this Mac.")
         }
+        try checkPairAttempt()
         let role: PadRole
         if request.code == hostCode { role = .host } else if request.code == guestCode { role = .guest } else {
+            pairFailed()
             throw ErrorBody(code: "code", message: "That code is not right. Check the code on the TV or the Mac.")
+        }
+        pairSucceeded()
+        let maxPads = settings.network.maxPads
+        if maxPads > 0, await activePadCount >= maxPads {
+            throw ErrorBody(code: "full", message: "This Mac already has \(maxPads) devices paired. Ask the host to unpair one.")
         }
         let token = UUID().uuidString + UUID().uuidString
         let pad = PadRecord(id: UUID().uuidString, name: request.deviceName, model: request.deviceModel, tokenHash: Self.hashToken(token), role: role, pairedAt: .now)
@@ -880,7 +908,7 @@ public final class HostController: HostAPI {
     public func search(_ q: String, filters: SearchFilters) async throws -> SearchResponse {
         let found = try await library.search(q, filters: filters)
         let mapped = found.map { summary($0) }
-        guard settings.services.catalogSearchEnabled, !filters.readyOnly, !q.isEmpty else {
+        guard settings.services.catalogSearchEnabled, !filters.readyOnly, filters.favoritesOf == nil, !q.isEmpty else {
             return SearchResponse(songs: mapped, total: mapped.count)
         }
         let owned = Set(songs.map { normalizeForMatch($0.title) + "|" + normalizeForMatch(Self.firstArtist($0.artist)) })

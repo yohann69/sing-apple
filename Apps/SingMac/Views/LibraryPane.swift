@@ -45,6 +45,9 @@ struct LibraryPane: View {
                 Button("Play Next") { Task { try? await host.enqueue(songID: id, singerIDs: [], playNext: true, by: nil) } }
                 Divider()
                 Button("Find Lyrics Again (providers, then AI timing)") { Task { await host.refreshLyrics(id, force: true) } }
+                Button("Keep Stems (never auto-delete)") { Task { await host.setPinned(id, true) } }
+                Button("Allow Auto-Delete of Stems") { Task { await host.setPinned(id, false) } }
+                Button("Clear This Song's Cache") { Task { _ = await host.clearCache(ClearCacheRequest(songID: id)) } }
             }
         } primaryAction: { ids in
             if let id = ids.first, let song = host.songs.first(where: { $0.id == id }) { queueFor = song }

@@ -7,6 +7,9 @@ public struct SingSettings: Codable, Sendable, Hashable {
     public var queue = QueueSettings()
     public var theme = ThemeSettings()
     public var services = ServiceSettings()
+    public var storage = StorageSettings()
+    public var system = SystemSettings()
+    public var network = NetworkSettings()
 
     public init() {}
 
@@ -17,6 +20,9 @@ public struct SingSettings: Codable, Sendable, Hashable {
         queue = (try? c.decode(QueueSettings.self, forKey: .queue)) ?? QueueSettings()
         theme = (try? c.decode(ThemeSettings.self, forKey: .theme)) ?? ThemeSettings()
         services = (try? c.decode(ServiceSettings.self, forKey: .services)) ?? ServiceSettings()
+        storage = (try? c.decode(StorageSettings.self, forKey: .storage)) ?? StorageSettings()
+        system = (try? c.decode(SystemSettings.self, forKey: .system)) ?? SystemSettings()
+        network = (try? c.decode(NetworkSettings.self, forKey: .network)) ?? NetworkSettings()
     }
 }
 
@@ -156,5 +162,68 @@ public struct ServiceSettings: Codable, Sendable, Hashable {
         aiAlignmentEnabled = v(.aiAlignmentEnabled, d.aiAlignmentEnabled)
         catalogSearchEnabled = v(.catalogSearchEnabled, d.catalogSearchEnabled)
         timeoutSeconds = v(.timeoutSeconds, d.timeoutSeconds)
+    }
+}
+
+public struct StorageSettings: Codable, Sendable, Hashable {
+    /// Cap on everything Sing! keeps in its caches, in GB. 0 means no cap.
+    public var limitGB: Double = 0
+    /// Cap on separated stems alone, in GB. 0 means no cap.
+    public var stemsLimitGB: Double = 0
+    /// Warn when the disk has less free space than this, in GB.
+    public var lowDiskWarningGB: Double = 10
+    /// Over a cap, delete the stems of songs not played for the longest time (pinned and favorite songs stay).
+    public var autoFree = true
+
+    public init() {}
+
+    public init(from decoder: Decoder) throws {
+        let d = StorageSettings()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func v<T: Decodable>(_ k: CodingKeys, _ fallback: T) -> T { (try? c.decode(T.self, forKey: k)) ?? fallback }
+        limitGB = v(.limitGB, d.limitGB)
+        stemsLimitGB = v(.stemsLimitGB, d.stemsLimitGB)
+        lowDiskWarningGB = v(.lowDiskWarningGB, d.lowDiskWarningGB)
+        autoFree = v(.autoFree, d.autoFree)
+    }
+}
+
+public struct SystemSettings: Codable, Sendable, Hashable {
+    /// Separate and analyse the whole library in the background, not only queued songs.
+    public var processLibraryInBackground = true
+    /// Stop background work while someone is singing so playback never stutters.
+    public var pauseProcessingWhileSinging = true
+    /// Pause after this many minutes of continuous processing to let the Mac cool down. 0 means never.
+    public var restAfterMinutes: Double = 0
+
+    public init() {}
+
+    public init(from decoder: Decoder) throws {
+        let d = SystemSettings()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func v<T: Decodable>(_ k: CodingKeys, _ fallback: T) -> T { (try? c.decode(T.self, forKey: k)) ?? fallback }
+        processLibraryInBackground = v(.processLibraryInBackground, d.processLibraryInBackground)
+        pauseProcessingWhileSinging = v(.pauseProcessingWhileSinging, d.pauseProcessingWhileSinging)
+        restAfterMinutes = v(.restAfterMinutes, d.restAfterMinutes)
+    }
+}
+
+public struct NetworkSettings: Codable, Sendable, Hashable {
+    /// Name pads see on the network. Empty uses the Mac's name.
+    public var bonjourName = ""
+    /// Port for pads; the live socket uses the next one. Applies after a restart.
+    public var port = 47800
+    /// 0 means no limit.
+    public var maxPads = 0
+
+    public init() {}
+
+    public init(from decoder: Decoder) throws {
+        let d = NetworkSettings()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func v<T: Decodable>(_ k: CodingKeys, _ fallback: T) -> T { (try? c.decode(T.self, forKey: k)) ?? fallback }
+        bonjourName = v(.bonjourName, d.bonjourName)
+        port = v(.port, d.port)
+        maxPads = v(.maxPads, d.maxPads)
     }
 }

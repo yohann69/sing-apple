@@ -14,6 +14,8 @@ public actor SeparationQueue {
     var running = false
     var current: SongID?
     var paused = false
+    /// Queued songs still run; the rest of the library waits.
+    var holdBackground = false
     var onProgress: ProgressHandler?
     /// Lyrics, AI timing, pitch and singer detection; a song is only Ready once this has run.
     var postProcess: (@Sendable (SongID) async -> Void)?
@@ -31,6 +33,11 @@ public actor SeparationQueue {
     public func setPaused(_ p: Bool) {
         paused = p
         if !p { kick() }
+    }
+
+    public func setHoldBackground(_ h: Bool) {
+        holdBackground = h
+        if !h { kick() }
     }
 
     public var modelAvailable: Bool { FileManager.default.fileExists(atPath: modelURL.path) }
@@ -57,14 +64,14 @@ public actor SeparationQueue {
     }
 
     private func kick() {
-        guard !running, !paused else { return }
+        guard !running, !paused, !urgent.isEmpty || (!background.isEmpty && !holdBackground) else { return }
         running = true
         Task { await self.loop() }
     }
 
     private func next() -> SongID? {
         if !urgent.isEmpty { return urgent.removeFirst() }
-        if !background.isEmpty { return background.removeFirst() }
+        if !background.isEmpty, !holdBackground { return background.removeFirst() }
         return nil
     }
 

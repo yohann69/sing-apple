@@ -18,6 +18,7 @@ struct SongRow: View {
                 HStack(spacing: 6) {
                     Text(song.title).fontWeight(.semibold).lineLimit(1)
                     if song.isDuet { Image(systemName: "person.2.fill").font(.caption).foregroundStyle(.secondary) }
+                    if model.isFavorite(song.id) { Image(systemName: "heart.fill").font(.caption).foregroundStyle(.pink) }
                 }
                 Text(detail ?? song.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
             }
@@ -116,6 +117,7 @@ struct SongSheet: View {
                         }
                         .foregroundStyle(.secondary)
                     }
+                    RatingBar(songID: song.id)
                     VStack(alignment: .leading, spacing: 10) {
                         Text(song.isDuet ? "Who sings? Pick two for this duet" : "Who sings?").font(.headline)
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 10)], spacing: 10) {
@@ -334,6 +336,9 @@ struct PadSettingsView: View {
             if model.isHost {
                 let tv = Binding(get: { model.state.settings.tv }, set: { v in model.updateSettings { $0.tv = v } })
                 let all = Binding(get: { model.state.settings }, set: { v in model.updateSettings { $0 = v } })
+                Section {
+                    NavigationLink { OwnerAreaView() } label: { Label("Owner area: storage, devices, processing", systemImage: "lock.shield") }
+                }
                 TVDisplaySettingsSections(tv: tv, languages: model.languages.map { LanguageOption(code: $0.code, name: $0.name) })
                 PartySettingsSections(settings: all)
             } else {
@@ -352,6 +357,124 @@ struct PadSettingsView: View {
         case .connecting: "Connecting…"
         case .connected: "Connected"
         case .lost: "Reconnecting…"
+        }
+    }
+}
+
+/// Favorite, thumbs and never-suggest for the current singer.
+struct RatingBar: View {
+    var songID: SongID
+    @Environment(PadModel.self) private var model
+
+    var body: some View {
+        let r = model.ratings[songID]
+        GlassEffectContainer {
+            HStack(spacing: 10) {
+                button(r?.favorite == true ? "heart.fill" : "heart", "Favorite", tint: r?.favorite == true ? .pink : nil) { $0.favorite.toggle() }
+                button(r?.value == 1 ? "hand.thumbsup.fill" : "hand.thumbsup", "Like", tint: r?.value == 1 ? .green : nil) { $0.value = $0.value == 1 ? 0 : 1 }
+                button(r?.value == -1 ? "hand.thumbsdown.fill" : "hand.thumbsdown", "Dislike", tint: r?.value == -1 ? .orange : nil) { $0.value = $0.value == -1 ? 0 : -1 }
+                button(r?.neverSuggest == true ? "eye.slash.fill" : "eye.slash", "Never suggest", tint: r?.neverSuggest == true ? .red : nil) { $0.neverSuggest.toggle() }
+            }
+        }
+    }
+
+    private func button(_ icon: String, _ label: String, tint: Color?, change: @escaping (inout SongRating) -> Void) -> some View {
+        Button { withAnimation(.snappy) { model.rate(songID, change) } } label: {
+            Image(systemName: icon).font(.title3).frame(width: 46, height: 46)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(tint ?? .primary)
+        .glassEffect(.regular.interactive(), in: .circle)
+        .accessibilityLabel(label)
+    }
+}
+
+/// Storage, lyrics sources, processing, network and paired devices, behind the owner PIN.
+struct OwnerAreaView: View {
+    @Environment(PadModel.self) private var model
+    @State private var overview: OwnerOverview?
+    @State private var needsPIN = false
+    @State private var pin = ""
+    @State private var error: String?
+    @State private var working: SingSettings?
+    @State private var confirm: ClearCacheRequest?
+
+    var body: some View {
+        Form {
+            if needsPIN {
+                Section {
+                    SecureField("Owner PIN", text: $pin).keyboardType(.numberPad)
+                    Button("Unlock") { Task { await unlock() } }.disabled(pin.count < 4)
+                    if let error { Text(error).foregroundStyle(.red) }
+                } header: { Text("Owner PIN") } footer: { Text("Set on the Mac in Settings, Owner.") }
+            } else if let overview {
+                StorageDashboard(report: overview.storage) { confirm = $0 }
+                PadListSection(pads: overview.pads) { p in
+                    Task { try? await model.client?.unpair(padID: p.id); await load() }
+                }
+                if working != nil {
+                    OwnerSettingsSections(settings: Binding(get: { working ?? model.state.settings }, set: { v in
+                        working = v
+                        Task { try? await model.client?.updateOwnerSettings(v) }
+                    }))
+                    Section("Lyrics sources") {
+                        let services = Binding(get: { working?.services ?? ServiceSettings() }, set: { v in
+                            working?.services = v
+                            if let w = working { Task { try? await model.client?.updateOwnerSettings(w) } }
+                        })
+                        Toggle("Sing lyrics database", isOn: services.singAPIEnabled)
+                        Toggle("NetEase (word synced)", isOn: services.neteaseEnabled)
+                        Toggle("Kugou (word synced)", isOn: services.kugouEnabled)
+                        Toggle("LRCLIB (line synced)", isOn: services.lrclibEnabled)
+                        Toggle("Word timing with on-device AI", isOn: services.aiAlignmentEnabled)
+                        Toggle("Search public catalogs", isOn: services.catalogSearchEnabled)
+                    }
+                }
+            } else if let error {
+                Text(error).foregroundStyle(.red)
+            } else {
+                ProgressView()
+            }
+        }
+        .navigationTitle("Owner")
+        .task { await load() }
+        .refreshable { await load() }
+        .confirmationDialog("Clear this cache?", isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }), titleVisibility: .visible) {
+            Button("Clear", role: .destructive) {
+                guard let req = confirm, let client = model.client else { return }
+                Task {
+                    if let r = try? await client.clearCache(req) {
+                        model.toast = "Freed \(ByteCountFormatter.string(fromByteCount: r.freedBytes, countStyle: .file))"
+                    }
+                    await load()
+                }
+            }
+        } message: { Text("Songs are processed again the next time they are queued.") }
+    }
+
+    private func load() async {
+        guard let client = model.client else { return }
+        do {
+            overview = try await client.ownerOverview()
+            var s = model.state.settings
+            if let o = overview { s.services = o.services }
+            working = s
+            needsPIN = false
+            error = nil
+        } catch let e as ClientError where e.code == "owner" {
+            needsPIN = true
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func unlock() async {
+        do {
+            try await model.unlockOwner(pin: pin)
+            pin = ""
+            await load()
+        } catch {
+            self.error = error.localizedDescription
         }
     }
 }

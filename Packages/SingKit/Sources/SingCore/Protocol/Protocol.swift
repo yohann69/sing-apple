@@ -97,8 +97,11 @@ public struct SearchFilters: Codable, Sendable, Hashable {
     public var decade: Int?
     public var genre: String?
     public var language: String?
+    /// Only songs this singer marked as favorite.
+    public var favoritesOf: SingerID?
 
-    public init(readyOnly: Bool = false, duetOnly: Bool = false, decade: Int? = nil, genre: String? = nil, language: String? = nil) {
+    public init(readyOnly: Bool = false, duetOnly: Bool = false, decade: Int? = nil, genre: String? = nil, language: String? = nil, favoritesOf: SingerID? = nil) {
+        self.favoritesOf = favoritesOf
         self.readyOnly = readyOnly
         self.duetOnly = duetOnly
         self.decade = decade
