@@ -120,6 +120,7 @@ public struct SingAPIClient: Sendable {
 
     public func displayPitch(_ id: SongID) async throws -> PitchTrack { try await get("v1/songs/\(id)/pitch") }
 
+    public func searchLines(_ q: String) async throws -> SearchResponse { try await get("v1/lines", query: [URLQueryItem(name: "q", value: q)]) }
     public func ask(_ sentence: String) async throws -> SearchResponse { try await get("v1/ask", query: [URLQueryItem(name: "q", value: sentence)]) }
     public func duetSuggestions(_ a: SingerID, _ b: SingerID) async throws -> [Suggestion] {
         try await get("v1/suggestions/duet", query: [URLQueryItem(name: "a", value: String(a)), URLQueryItem(name: "b", value: String(b))])

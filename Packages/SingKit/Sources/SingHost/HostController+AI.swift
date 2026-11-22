@@ -31,6 +31,30 @@ extension HostController {
         try await stats.duetSuggestions(a, b).map { s in Suggestion(song: songs.first { $0.id == s.song.id } ?? s.song, reason: s.reason) }
     }
 
+    /// Finds songs from a remembered line through the Sing lyrics database, library songs first.
+    public func searchLines(_ q: String) async -> SearchResponse {
+        struct Hit: Decodable { var isrc: String?; var title: String; var artist: String; var text: String }
+        struct R: Decodable { var results: [Hit] }
+        guard q.count >= 3, var c = URLComponents(string: settings.services.singAPIBase + "/v1/search/lines") else { return SearchResponse(songs: [], total: 0) }
+        c.queryItems = [URLQueryItem(name: "q", value: q)]
+        var req = URLRequest(url: c.url!)
+        req.timeoutInterval = settings.services.timeoutSeconds
+        guard let (d, _) = try? await URLSession.shared.data(for: req), let hits = try? JSONDecoder().decode(R.self, from: d).results else {
+            return SearchResponse(songs: [], total: 0)
+        }
+        var owned: [SongSummary] = []
+        var catalog: [CatalogTrack] = []
+        for h in hits {
+            let key = normalizeForMatch(h.title) + "|" + normalizeForMatch(Self.firstArtist(h.artist))
+            if let s = songs.first(where: { ($0.isrc != nil && $0.isrc == h.isrc) || normalizeForMatch($0.title) + "|" + normalizeForMatch(Self.firstArtist($0.artist)) == key }) {
+                if !owned.contains(s) { owned.append(s) }
+            } else {
+                catalog.append(CatalogTrack(id: "sing:" + (h.isrc ?? key), title: h.title, artist: h.artist, album: nil, durationMs: 0, artworkURL: nil, isrc: h.isrc, sources: ["Sing lyrics: “\(h.text)”"], year: nil))
+            }
+        }
+        return SearchResponse(songs: owned, total: owned.count, catalog: catalog)
+    }
+
     var languageModelReady: Bool { SystemLanguageModel.default.availability == .available }
 
     /// Natural language search: Apple's on-device model turns the sentence into filters; keywords otherwise.

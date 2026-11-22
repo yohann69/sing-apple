@@ -71,6 +71,7 @@ public protocol HostAPI: AnyObject, Sendable {
     func removeModel(_ name: String) async
     func reinstallBundledModels() async
     func integrityCheck() async -> Int
+    func searchLines(_ q: String) async -> SearchResponse
 }
 
 public struct NewSinger: Codable, Sendable {
@@ -297,6 +298,8 @@ public final class SingServer: Sendable {
                 guard let id = Int64(p[1]) else { return error(400, "badRequest", "Bad song id") }
                 await api.reportBadLyrics(id, by: pad.name)
                 return json(["ok": true])
+            case ("GET", ["lines"]):
+                return json(await api.searchLines(req.query["q"] ?? ""))
             case ("GET", ["ask"]):
                 return json(try await api.ask(req.query["q"] ?? ""))
             case ("GET", ["suggestions", "duet"]):

@@ -169,6 +169,7 @@ struct SearchPanel: View {
     @State private var loading = false
     @State private var humResults: [SongSummary]?
     @State private var askMode = false
+    @State private var lineMode = false
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -191,7 +192,8 @@ struct SearchPanel: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     chip("Ready now", filters.readyOnly) { filters.readyOnly.toggle() }
-                    chip("✨ Ask", askMode) { askMode.toggle() }
+                    chip("✨ Ask", askMode) { askMode.toggle(); lineMode = false }
+                    chip("Lyric line", lineMode) { lineMode.toggle(); askMode = false }
                     chip("Favorites", filters.favoritesOf != nil) { filters.favoritesOf = filters.favoritesOf == nil ? model.currentSingerID : nil }
                     chip("Duets", filters.duetOnly) { filters.duetOnly.toggle() }
                     ForEach([1980, 1990, 2000, 2010, 2020], id: \.self) { d in
@@ -246,11 +248,13 @@ struct SearchPanel: View {
         }
         .padding(14)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 30))
-        .task(id: "\(query)|\(filters.readyOnly)|\(filters.duetOnly)|\(filters.decade ?? 0)|\(filters.favoritesOf ?? 0)|\(model.ratings.count)|\(askMode)") {
+        .task(id: "\(query)|\(filters.readyOnly)|\(filters.duetOnly)|\(filters.decade ?? 0)|\(filters.favoritesOf ?? 0)|\(model.ratings.count)|\(askMode)|\(lineMode)") {
             try? await Task.sleep(for: .milliseconds(220))
             guard let client = model.client, !query.isEmpty || filters.favoritesOf != nil else { return }
             loading = true
-            if askMode, !query.isEmpty {
+            if lineMode, !query.isEmpty {
+                if let r = try? await client.searchLines(query) { results = r }
+            } else if askMode, !query.isEmpty {
                 if let r = try? await client.ask(query) { results = r }
             } else if let r = try? await client.search(query, filters: filters) { results = r }
             loading = false
