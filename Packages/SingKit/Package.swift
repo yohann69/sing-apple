@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "SingKit",
     defaultLocalization: "en",
-    platforms: [.macOS(.v26), .iOS(.v26)],
+    platforms: [.macOS(.v26), .iOS(.v26), .tvOS(.v26)],
     products: [
         .library(name: "SingCore", targets: ["SingCore"]),
         .library(name: "SingDesign", targets: ["SingDesign"]),

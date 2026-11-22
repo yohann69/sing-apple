@@ -156,6 +156,14 @@ extension HostController {
 
 #if os(macOS)
 extension HostController {
+    /// The simplified melody the TV draws, for other screens such as the Apple TV app.
+    public func displayPitch(songID: SongID) async -> PitchTrack? {
+        if nowPlaying.entry?.song.id == songID, let d = displayPitch { return d }
+        guard let r = try? await library.song(songID), let d = try? Data(contentsOf: paths.pitch(r.audioHash)),
+              let t = try? JSONDecoder().decode(PitchTrack.self, from: d) else { return nil }
+        return t.version >= PitchTrack.currentVersion ? t.coarse() : t.simplified()
+    }
+
     /// Matches a hummed recording against every song whose melody has been analysed.
     public func humSearch(_ audio: Data) async throws -> [SongSummary] {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("hum-\(UUID().uuidString).m4a")

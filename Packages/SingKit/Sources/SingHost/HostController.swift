@@ -934,6 +934,7 @@ public final class HostController: HostAPI {
         )
         state.leaderboard = tonightBoard.isEmpty ? nil : tonightBoard
         state.recap = recap
+        state.joinURL = joinURL
         return state
     }
 

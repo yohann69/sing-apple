@@ -136,6 +136,8 @@ public struct LiveState: Codable, Sendable, Hashable {
     public var leaderboard: [RankedName]? = nil
     /// Set for a while after the host ends the party.
     public var recap: PartyRecap? = nil
+    /// The guest join link the TV shows, for screens other than the Mac's own.
+    public var joinURL: String? = nil
     /// Separation progress keyed by song id as a string, so JSON keeps an object.
     public var preparingByID: [String: Double]
 

@@ -118,6 +118,8 @@ public struct SingAPIClient: Sendable {
         return try SingProtocol.decoder().decode(SearchResponse.self, from: data).songs
     }
 
+    public func displayPitch(_ id: SongID) async throws -> PitchTrack { try await get("v1/songs/\(id)/pitch") }
+
     public func recap() async throws -> PartyRecap { try await get("v1/recap") }
     public func songSettings(_ id: SongID) async throws -> SongSettings { try await get("v1/songs/\(id)/settings") }
     @discardableResult

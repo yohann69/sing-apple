@@ -1,3 +1,4 @@
+#if !os(tvOS)
 import AVFoundation
 import SingCore
 import SwiftUI
@@ -88,3 +89,5 @@ public struct RecordingsList: View {
         p.play()
     }
 }
+
+#endif

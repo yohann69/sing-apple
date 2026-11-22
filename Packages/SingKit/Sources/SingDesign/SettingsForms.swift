@@ -1,3 +1,4 @@
+#if !os(tvOS)
 import SwiftUI
 import SingCore
 
@@ -123,3 +124,5 @@ public struct PartySettingsSections: View {
         }
     }
 }
+
+#endif

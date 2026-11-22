@@ -1,3 +1,4 @@
+#if !os(tvOS)
 import SingCore
 import SwiftUI
 
@@ -217,3 +218,5 @@ public struct SongSettingsForm: View {
         }
     }
 }
+
+#endif

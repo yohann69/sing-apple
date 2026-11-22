@@ -48,6 +48,7 @@ public protocol HostAPI: AnyObject, Sendable {
     func latestRecap() async -> PartyRecap?
     func humSearch(_ audio: Data) async throws -> [SongSummary]
     func reelFile(token: String) async -> URL?
+    func displayPitch(songID: SongID) async -> PitchTrack?
 }
 
 public struct NewSinger: Codable, Sendable {
@@ -247,6 +248,9 @@ public final class SingServer: Sendable {
             case ("GET", let p) where p.count == 3 && p[0] == "songs" && p[2] == "lyrics":
                 guard let id = Int64(p[1]), let l = await api.lyrics(songID: id, translateTo: req.query["translate"].flatMap { $0.isEmpty ? nil : $0 }) else { return error(404, "notFound", "No lyrics") }
                 return json(l)
+            case ("GET", let p) where p.count == 3 && p[0] == "songs" && p[2] == "pitch":
+                guard let id = Int64(p[1]), let t = await api.displayPitch(songID: id) else { return error(404, "notFound", "No melody yet") }
+                return json(t)
             case ("GET", ["translation", "languages"]):
                 return json(await api.translationLanguages())
             case ("GET", ["singers"]):
