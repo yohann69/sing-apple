@@ -200,8 +200,8 @@ final class PadModel {
 
     // MARK: Actions
 
-    func enqueue(_ song: SongSummary, singers: [SingerID], playNext: Bool) {
-        send(.enqueue(.init(songID: song.id, singerIDs: singers, playNext: playNext)))
+    func enqueue(_ song: SongSummary, singers: [SingerID], playNext: Bool, battle: Bool = false) {
+        send(.enqueue(.init(songID: song.id, singerIDs: singers, playNext: playNext, battle: battle && singers.count >= 2 ? true : nil)))
         toast = playNext ? "\(song.title) plays next" : "\(song.title) added to the queue"
     }
 

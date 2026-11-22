@@ -61,6 +61,8 @@ public struct TVDisplaySettingsSections: View {
             Toggle("Score details", isOn: $tv.showScoreDetails)
             Toggle("Confetti", isOn: $tv.showConfetti)
             Toggle("Tonight's leaderboard between songs", isOn: $tv.showLeaderboard)
+            Toggle("Latin spelling under other scripts", isOn: $tv.showRomanization)
+            Toggle("Applause meter after each song", isOn: $tv.showApplause)
             VStack(alignment: .leading) {
                 Text("Results stay on screen for \(Int(tv.resultSeconds)) s")
                 Slider(value: $tv.resultSeconds, in: 7...30, step: 1)

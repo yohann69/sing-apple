@@ -33,6 +33,8 @@ public struct PerformanceResult: Codable, Sendable, Hashable {
     public var shareURL: String?
     /// Each duet partner's own score, from the lines assigned to them.
     public var perSinger: [RankedName]?
+    /// How loud the room cheered, 0 to 100, measured on the mics right after the song.
+    public var applause: Int?
 
     public init(entryID: String, songTitle: String, artist: String, singers: [Singer], total: Int?, grade: String?, title: String, comment: String, categories: [ScoreCategory], badges: [String], leaderboard: [RankedName], endedAt: Date = .now) {
         self.entryID = entryID

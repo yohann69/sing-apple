@@ -108,6 +108,8 @@ public struct PartyRecap: Codable, Sendable, Hashable {
     public var bestSong: String?
     public var topArtist: String?
     public var highlights: [String]
+    /// A short mix of every recorded performance of the night, when recording was on.
+    public var reelURL: String?
 
     public init(name: String?, startedAt: Date, endedAt: Date, songs: Int, minutes: Int, singers: Int, topSinger: RankedName?, bestScore: RankedName?, bestSong: String?, topArtist: String?, highlights: [String]) {
         self.name = name

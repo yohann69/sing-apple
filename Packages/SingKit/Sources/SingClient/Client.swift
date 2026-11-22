@@ -107,6 +107,17 @@ public struct SingAPIClient: Sendable {
         let _: [String: Bool] = try await send("v1/owner/pads/\(padID)", method: "DELETE", body: [String: String]())
     }
 
+    /// Sends a short hummed recording; the Mac answers with the songs whose melody matches.
+    public func humSearch(_ audio: Data) async throws -> [SongSummary] {
+        var r = request(endpoint.baseURL.appendingPathComponent("v1/hum"), method: "POST")
+        r.httpBody = audio
+        r.timeoutInterval = 30
+        r.setValue("audio/mp4", forHTTPHeaderField: "Content-Type")
+        let (data, resp) = try await session.data(for: r)
+        try check(resp, data)
+        return try SingProtocol.decoder().decode(SearchResponse.self, from: data).songs
+    }
+
     public func recap() async throws -> PartyRecap { try await get("v1/recap") }
     public func songSettings(_ id: SongID) async throws -> SongSettings { try await get("v1/songs/\(id)/settings") }
     @discardableResult

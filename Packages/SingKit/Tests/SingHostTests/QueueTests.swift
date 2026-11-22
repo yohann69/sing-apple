@@ -63,3 +63,17 @@ struct RecordingMixTests {
         #expect(r.extraHeaders["Content-Range"] == "bytes 10-19/100")
     }
 }
+
+struct HumSearchTests {
+    func track(_ midis: [Float]) -> PitchTrack {
+        PitchTrack(notes: midis.enumerated().map { PitchNote(start: Double($0.offset) * 0.4, end: Double($0.offset) * 0.4 + 0.3, midi: $0.element) })
+    }
+
+    @Test func findsTransposedPhrase() {
+        var g = SystemRandomNumberGenerator()
+        let songs: [(SongID, PitchTrack)] = (1...20).map { id in (Int64(id), track((0..<80).map { _ in Float(Int.random(in: 55...72, using: &g)) })) }
+        let target = songs[7].1.notes[30..<40].map { $0.midi + 3 }
+        let r = HumSearch.rank(hum: track(target), songs: songs)
+        #expect(r.first?.0 == 8)
+    }
+}

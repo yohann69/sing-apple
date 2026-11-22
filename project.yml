@@ -71,6 +71,7 @@ targets:
         NSLocalNetworkUsageDescription: Sing! finds and controls the karaoke Mac on your network.
         NSBonjourServices: [_sing._tcp]
         NSCameraUsageDescription: Scan the QR code on the TV to join the party.
+        NSMicrophoneUsageDescription: Hum a tune to find the song.
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
         CFBundleURLTypes:

@@ -65,6 +65,7 @@ public final class HostController: HostAPI {
     @ObservationIgnored var take: RecordingTake?
     public internal(set) var tonightBoard: [RankedName] = []
     public internal(set) var recap: PartyRecap?
+    @ObservationIgnored var usedLoop = false
     @ObservationIgnored var sleepAssertion: IOPMAssertionID = 0
     public internal(set) var isReplaying = false
     @ObservationIgnored var howlSince: Date?
@@ -385,6 +386,7 @@ public final class HostController: HostAPI {
 
     func samplePitch() {
         guard nowPlaying.state == .playing else { return }
+        checkLoop()
         let t = lyricTime
         livePoints.removeAll { $0.time < t - 6 || $0.time > t + 0.5 }
         guardFeedback()
@@ -433,10 +435,11 @@ public final class HostController: HostAPI {
 
     // MARK: Queue
 
-    public func enqueue(songID: SongID, singerIDs: [SingerID], playNext: Bool, by pad: String?) async throws {
+    public func enqueue(songID: SongID, singerIDs: [SingerID], playNext: Bool, by pad: String?, battle: Bool = false) async throws {
         guard let record = try await library.song(songID) else { throw QueueError.notFound }
-        let chosen = singers.filter { singerIDs.contains($0.id) }
-        let entry = QueueEntry(song: summary(record), singers: chosen, addedBy: pad)
+        let chosen = singerIDs.compactMap { id in singers.first { $0.id == id } }
+        var entry = QueueEntry(song: summary(record), singers: chosen, addedBy: pad)
+        if battle, chosen.count >= 2 { entry.battle = true }
         try queue.add(entry, playNext: playNext, maxPerSinger: settings.queue.maxQueuedPerSinger, fairRotation: settings.queue.fairRotation)
         await logQueueEvent("added", songID: songID, singers: singerIDs, pad: pad)
         if evicted.remove(songID) != nil { saveEvicted() }
@@ -531,6 +534,12 @@ public final class HostController: HostAPI {
         tonightBoard = []
         recap = await partyRecap(sessionID: s.id)
         scheduleBroadcast()
+        Task {
+            if let url = await buildReel(sessionID: s.id), self.recap != nil {
+                self.recap?.reelURL = url
+                self.scheduleBroadcast()
+            }
+        }
         let shown = recap
         Task {
             try? await Task.sleep(for: .seconds(90))
@@ -564,7 +573,7 @@ public final class HostController: HostAPI {
         async let lyr = lyricsService.resolve(record)
         let stems = await separation.isReady(record)
         let ready = record.readiness == .ready && stems
-        lyrics = await lyr.map { $0.shifted(by: Double(record.lyricOffsetMs) / 1000) }
+        lyrics = await lyr.map { $0.shifted(by: Double(record.lyricOffsetMs) / 1000).romanized() }
         nowPlaying.lyricOffsetMs = record.lyricOffsetMs
         if ready || settings.playback.playOriginalWhenNotReady || !modelAvailable {
             await startPrepared()
@@ -587,7 +596,7 @@ public final class HostController: HostAPI {
             await playNext()
             return
         }
-        if lyrics == nil { lyrics = await lyricsService.resolve(record) }
+        if lyrics == nil { lyrics = await lyricsService.resolve(record)?.romanized() }
         pitchTrack = await loadPitch(record)
         resetLiveScore()
         tvTranslation = nil
@@ -706,10 +715,19 @@ public final class HostController: HostAPI {
                 comment: total == nil ? "No singing was picked up by the mic, but what a performance." : Self.comment(total!, cats),
                 categories: cats, badges: badges, leaderboard: []
             )
-            lastResult?.perSinger = duetScores(entry)
+            lastResult?.perSinger = entry.battle == true ? battleScores(entry) : duetScores(entry)
+            if entry.battle == true, let parts = lastResult?.perSinger, let win = parts.max(by: { $0.count < $1.count }) {
+                lastResult?.title = "\(win.name) wins the battle!"
+            }
+            if usedLoop {
+                lastResult?.comment = "Practice run: not saved to the stats."
+            }
+            measureApplause(entryID: entry.id)
         }
+        if usedLoop { discardTake() }
         finishTake(playID: currentPlay?.id, score: scored?.total)
-        finishCurrentPlay(skipped: skipped, score: scored.map { Double($0.total) })
+        finishCurrentPlay(skipped: skipped, score: usedLoop ? nil : scored.map { Double($0.total) })
+        usedLoop = false
         scheduleBroadcast()
         let hold = max(7, settings.tv.resultSeconds)
         let id = entry?.id
@@ -1030,7 +1048,7 @@ public final class HostController: HostAPI {
     public func lyrics(songID: SongID, translateTo: String?) async -> Lyrics? {
         guard let s = try? await library.song(songID) else { return nil }
         var base: Lyrics? = nowPlaying.entry?.song.id == songID ? lyrics : nil
-        if base == nil { base = await lyricsService.resolve(s) }
+        if base == nil { base = await lyricsService.resolve(s)?.romanized() }
         guard let base, let lang = translateTo else { return base }
         return await translated(base, song: s, to: lang) ?? base
     }
@@ -1103,7 +1121,7 @@ public final class HostController: HostAPI {
         switch message {
         case .enqueue(let e):
             guard host || settings.queue.guestsCanQueue else { throw QueueError.notAllowed }
-            try await enqueue(songID: e.songID, singerIDs: e.singerIDs, playNext: e.playNext && host, by: pad.padID)
+            try await enqueue(songID: e.songID, singerIDs: e.singerIDs, playNext: e.playNext && host, by: pad.padID, battle: e.battle ?? false)
         case .remove(let id):
             try removeFromQueue(id, by: pad)
         case .move(let m):
@@ -1147,6 +1165,9 @@ public final class HostController: HostAPI {
         case .setLyricOffset(let ms):
             guard host else { throw QueueError.notAllowed }
             setLyricOffset(ms)
+        case .setLoop(let l):
+            guard host else { throw QueueError.notAllowed }
+            setLoop(start: l.startMs, end: l.endMs)
         case .setMicPreset(let p):
             guard host, MicPreset(rawValue: p) != nil else { throw QueueError.notAllowed }
             settings.playback.micPreset = p

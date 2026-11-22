@@ -59,6 +59,16 @@ struct ScoreRevealStage: View {
             }
             .font(.system(size: 32 * scale, weight: .bold))
             .reveal(appear(elapsed, at: 0.2))
+            if let clap = result.applause, settings.showApplause {
+                HStack(spacing: 12 * scale) {
+                    Text("👏")
+                    Capsule().fill(.white.opacity(0.15)).frame(width: 260 * scale, height: 14 * scale)
+                        .overlay(alignment: .leading) { Capsule().fill(.white).frame(width: 260 * scale * CGFloat(clap) / 100, height: 14 * scale) }
+                    Text("\(clap)").monospacedDigit()
+                }
+                .font(.system(size: 30 * scale, weight: .bold))
+                .animation(.spring(response: 0.6, dampingFraction: 0.7), value: clap)
+            }
             if let parts = result.perSinger, parts.count > 1 {
                 HStack(spacing: 30 * scale) {
                     ForEach(parts) { p in

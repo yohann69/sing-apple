@@ -354,6 +354,9 @@ struct LyricsColumn: View {
                 KaraokeLineView(segments: line.background, time: t, font: theme.lyricFont(size: size * 0.42).italic(), wordSpacing: size * 0.1,
                                 sung: .white.opacity(0.9), dim: .white.opacity(isFocus ? 0.28 : 0.8), glow: color, alignment: align, wipe: wipe && isFocus)
             }
+            if settings.showRomanization, let ro = line.romanization {
+                Text(ro).font(.system(size: size * 0.36, weight: .medium)).opacity(isFocus ? 0.75 : 0.5)
+            }
             if settings.showTranslation, let tr = line.translation {
                 Text(tr).font(.system(size: size * 0.34, weight: .semibold)).opacity(0.6)
             }
@@ -565,6 +568,12 @@ struct RecapStage: View {
             VStack(spacing: 14 * scale) {
                 ForEach(recap.highlights, id: \.self) { h in
                     Text(h).font(.system(size: 34 * scale, weight: .semibold))
+                }
+            }
+            if let reel = recap.reelURL {
+                HStack(spacing: 20 * scale) {
+                    QRCodeView(reel).padding(12 * scale).background(.white, in: RoundedRectangle(cornerRadius: 18 * scale)).frame(width: 170 * scale, height: 170 * scale)
+                    Text("The night's highlights,\nscan to take them home").font(.system(size: 28 * scale, weight: .semibold))
                 }
             }
             Text("Thanks for singing.").font(.system(size: 28 * scale)).opacity(0.7)

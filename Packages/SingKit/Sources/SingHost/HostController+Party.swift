@@ -95,3 +95,83 @@ extension HostController {
     }
 }
 #endif
+
+#if os(macOS)
+extension HostController {
+    /// Battle: singers alternate line by line (or take their duet part), each scored on their own lines.
+    func battleScores(_ entry: QueueEntry) -> [RankedName]? {
+        if let duet = duetScores(entry) { return duet }
+        guard let l = lyrics, entry.singers.count >= 2 else { return nil }
+        let n = entry.singers.count
+        var out: [RankedName] = []
+        for (i, singer) in entry.singers.enumerated() {
+            let ranges = l.lines.enumerated().filter { $0.offset % n == i }.map { ($0.element.start, $0.element.end) }
+            if let r = scoreKeeper.result(track: pitchTrack, upTo: playback.duration, tolerance: scoreTolerance, during: { t in ranges.contains { t >= $0.0 - 0.2 && t <= $0.1 + 0.2 } }) {
+                out.append(RankedName(name: singer.name, count: r.total, colorHex: singer.colorHex))
+            }
+        }
+        return out.isEmpty ? nil : out
+    }
+
+    public func setLoop(start: Int?, end: Int?) {
+        guard let s = start, let e = end, e > s + 1000 else {
+            nowPlaying.loopStartMs = nil
+            nowPlaying.loopEndMs = nil
+            scheduleBroadcast()
+            return
+        }
+        nowPlaying.loopStartMs = max(0, s)
+        nowPlaying.loopEndMs = e
+        usedLoop = true
+        if take != nil { discardTake() }
+        scheduleBroadcast()
+    }
+
+    func checkLoop() {
+        guard let s = nowPlaying.loopStartMs, let e = nowPlaying.loopEndMs else { return }
+        if playback.position * 1000 >= Double(e) {
+            seek(to: Double(s) / 1000)
+        }
+    }
+
+    /// Listens to the room for five seconds after the song and turns the cheering into a 0 to 100 score.
+    func measureApplause(entryID: String) {
+        guard settings.tv.showApplause, mic.isRunning else { return }
+        Task {
+            var levels: [Float] = []
+            for _ in 0..<100 {
+                try? await Task.sleep(for: .milliseconds(50))
+                levels.append(mic.level)
+            }
+            let top = levels.sorted(by: >).prefix(20)
+            let avg = top.reduce(0, +) / Float(max(1, top.count))
+            let score = Int(max(0, min(100, (avg - 0.02) / 0.5 * 100)).rounded())
+            guard lastResult?.entryID == entryID else { return }
+            lastResult?.applause = score
+            scheduleBroadcast()
+        }
+    }
+}
+#endif
+
+#if os(macOS)
+extension HostController {
+    /// Matches a hummed recording against every song whose melody has been analysed.
+    public func humSearch(_ audio: Data) async throws -> [SongSummary] {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("hum-\(UUID().uuidString).m4a")
+        try audio.write(to: tmp)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let records = (try? await library.all()) ?? []
+        let paths = self.paths
+        let ranked = try await Task.detached(priority: .userInitiated) { () -> [(SongID, Float)] in
+            let hum = try MelodyExtractor.extract(vocals: tmp)
+            let tracks: [(SongID, PitchTrack)] = records.compactMap { r in
+                guard let id = r.id, let d = try? Data(contentsOf: paths.pitch(r.audioHash)), let t = try? JSONDecoder().decode(PitchTrack.self, from: d) else { return nil }
+                return (id, t)
+            }
+            return HumSearch.rank(hum: hum, songs: tracks)
+        }.value
+        return ranked.filter { $0.1 < 2.2 }.compactMap { r in songs.first { $0.id == r.0 } }
+    }
+}
+#endif

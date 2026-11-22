@@ -142,6 +142,18 @@ struct NowPlayingPane: View {
                 Stepper("Tempo: \(Int((host.nowPlaying.tempo * 100).rounded()))%", value: Binding(get: { host.nowPlaying.tempo }, set: { host.setTempo($0) }), in: 0.75...1.25, step: 0.05)
             }
             .font(.callout)
+            HStack {
+                if host.nowPlaying.loopStartMs != nil {
+                    Button("Stop practice loop") { host.setLoop(start: nil, end: nil) }
+                } else {
+                    Button("Practice: loop this line") {
+                        if let l = host.lyrics, let i = l.lineIndex(at: host.lyricTime) ?? l.lines.firstIndex(where: { $0.start > host.lyricTime }) {
+                            host.setLoop(start: Int(max(0, l.lines[i].start - 1) * 1000), end: Int((l.lines[i].end + 0.6) * 1000))
+                        }
+                    }
+                }
+            }
+            .buttonStyle(.glass)
             Divider().opacity(0.3)
             HStack {
                 Toggle("Microphone", isOn: $host.settings.playback.micEnabled)

@@ -48,6 +48,9 @@ public struct TVDisplaySettings: Codable, Sendable, Hashable {
     public var showConfetti = true
     /// Tonight's top scores between songs.
     public var showLeaderboard = true
+    /// Latin spelling under lyrics in other scripts.
+    public var showRomanization = true
+    public var showApplause = true
     public var estimatedWordWipe = true
     public var resultSeconds: Double = 10
     public var lyricSize: Double = 96
@@ -77,6 +80,8 @@ public struct TVDisplaySettings: Codable, Sendable, Hashable {
         showScoreDetails = v(.showScoreDetails, d.showScoreDetails)
         showConfetti = v(.showConfetti, d.showConfetti)
         showLeaderboard = v(.showLeaderboard, d.showLeaderboard)
+        showRomanization = v(.showRomanization, d.showRomanization)
+        showApplause = v(.showApplause, d.showApplause)
         estimatedWordWipe = v(.estimatedWordWipe, d.estimatedWordWipe)
         lyricSize = v(.lyricSize, d.lyricSize)
         resultSeconds = max(7, v(.resultSeconds, d.resultSeconds))

@@ -98,6 +98,7 @@ struct SongSheet: View {
     @Environment(PadModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var chosen = Set<SingerID>()
+    @State private var battle = false
 
     var body: some View {
         NavigationStack {
@@ -132,10 +133,15 @@ struct SongSheet: View {
                             }
                         }
                     }
+                    if chosen.count >= 2 {
+                        Toggle(isOn: $battle) { Label("Battle: take turns line by line, best score wins", systemImage: "flag.2.crossed") }
+                            .padding(14)
+                            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18))
+                    }
                     GlassEffectContainer {
                         VStack(spacing: 12) {
                             Button {
-                                model.enqueue(song, singers: Array(chosen), playNext: false)
+                                model.enqueue(song, singers: Array(chosen), playNext: false, battle: battle)
                                 dismiss()
                             } label: {
                                 Label("Add to queue", systemImage: "text.badge.plus").frame(maxWidth: .infinity)

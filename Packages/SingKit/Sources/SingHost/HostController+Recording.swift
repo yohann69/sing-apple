@@ -143,6 +143,25 @@ extension HostController {
         }
     }
 
+    /// Builds the night's highlight reel from its recordings; returns its share link.
+    func buildReel(sessionID: Int64) async -> String? {
+        let files: [String] = (try? await database.writer.read { db in
+            try String.fetchAll(db, sql: "SELECT r.mixPath FROM recording r JOIN play p ON p.id = r.playId WHERE p.sessionId = ? AND r.mixPath IS NOT NULL ORDER BY r.createdAt", arguments: [sessionID])
+        }) ?? []
+        guard files.count >= 2 else { return nil }
+        let token = "reel" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
+        let out = paths.recordings.appendingPathComponent("\(token).m4a")
+        let ok = await Task.detached(priority: .utility) { (try? HighlightReel.make(from: files.map { URL(fileURLWithPath: $0) }, to: out)) ?? false }.value
+        return ok ? shareURL(token) : nil
+    }
+
+    /// Reels are plain files named by their token; recordings are looked up in the database.
+    public func reelFile(token: String) -> URL? {
+        guard token.hasPrefix("reel"), token.count == 16, token.allSatisfy({ $0.isLetter || $0.isNumber }) else { return nil }
+        let url = paths.recordings.appendingPathComponent("\(token).m4a")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
     func pruneRecordings() async {
         let days = settings.playback.keepRecordingsDays
         guard days > 0 else { return }

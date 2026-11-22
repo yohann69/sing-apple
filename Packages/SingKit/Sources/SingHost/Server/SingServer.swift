@@ -46,6 +46,8 @@ public protocol HostAPI: AnyObject, Sendable {
     func updateSongSettings(_ id: SongID, _ s: SongSettings) async
     func exportDatabase() async throws -> Data
     func latestRecap() async -> PartyRecap?
+    func humSearch(_ audio: Data) async throws -> [SongSummary]
+    func reelFile(token: String) async -> URL?
 }
 
 public struct NewSinger: Codable, Sendable {
@@ -206,6 +208,11 @@ public final class SingServer: Sendable {
 
     static func route(_ req: HTTPRequest, api: any HostAPI) async -> HTTPResponse {
         let parts = req.path.split(separator: "/").map(String.init)
+        if req.method == "GET", parts.first == "r", parts.count >= 2, let reel = await api.reelFile(token: parts[1]) {
+            if parts.count == 3, parts[2] == "audio", let data = try? Data(contentsOf: reel) { return audio(data, req) }
+            let info = RecordingInfo(id: 0, songID: nil, songTitle: "Highlights of the night", artist: "Sing!", singers: [], recordedAt: .now, durationMs: 0, score: nil, kept: true, shareToken: parts[1])
+            return WebRemote.sharePage(info, audioPath: "/r/\(parts[1])/audio")
+        }
         if req.method == "GET", parts.first == "r", parts.count >= 2 {
             guard let shared = await api.sharedRecording(token: parts[1]) else { return HTTPResponse(status: 404, contentType: "text/plain", body: Data("This recording is gone.".utf8)) }
             if parts.count == 3, parts[2] == "audio", let data = try? Data(contentsOf: shared.audio) { return audio(data, req) }
@@ -257,6 +264,9 @@ public final class SingServer: Sendable {
                 let s = try SingProtocol.decoder().decode(SongSettings.self, from: req.body)
                 await api.updateSongSettings(id, s)
                 return json(s)
+            case ("POST", ["hum"]):
+                guard req.body.count > 1000 else { return error(400, "badRequest", "Hum for a few seconds") }
+                return json(SearchResponse(songs: try await api.humSearch(req.body), total: 0))
             case ("GET", ["recap"]):
                 guard let r = await api.latestRecap() else { return error(404, "notFound", "No party yet") }
                 return json(r)

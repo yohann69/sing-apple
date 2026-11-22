@@ -167,6 +167,7 @@ struct SearchPanel: View {
     @State private var selected: SongSummary?
     @State private var requesting: CatalogTrack?
     @State private var loading = false
+    @State private var humResults: [SongSummary]?
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -178,6 +179,7 @@ struct SearchPanel: View {
                     .submitLabel(.search)
                     .autocorrectionDisabled()
                 if loading { ProgressView().controlSize(.small) }
+                HumButton { found in humResults = found; query = "" }
                 if !query.isEmpty {
                     Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain).opacity(0.7)
                 }
@@ -197,7 +199,13 @@ struct SearchPanel: View {
             }
 
             List {
-                if query.isEmpty && filters.favoritesOf != nil {
+                if let hum = humResults, query.isEmpty {
+                    Section("Sounds like") {
+                        ForEach(hum) { s in Button { selected = s } label: { SongRow(song: s) }.buttonStyle(.plain) }
+                        if hum.isEmpty { Text("No match. Hum the chorus a bit longer, or only songs already prepared can be found.").opacity(0.7) }
+                        Button("Clear") { humResults = nil }
+                    }
+                } else if query.isEmpty && filters.favoritesOf != nil {
                     Section("Favorites") {
                         ForEach(results.songs) { s in
                             Button { selected = s } label: { SongRow(song: s) }.buttonStyle(.plain)
@@ -338,6 +346,12 @@ struct ResultCard: View {
                 }
                 .padding(.top, 4)
             }
+            if result.applause != nil || (result.perSinger?.count ?? 0) > 1 {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(result.perSinger ?? []) { p in Text("\(p.name): \(p.count)").font(.headline) }
+                    if let a = result.applause { Text("👏 \(a)").font(.headline) }
+                }
+            }
             Spacer(minLength: 0)
             if let url = result.shareURL {
                 VStack(spacing: 6) {
@@ -394,6 +408,15 @@ struct MixerSheet: View {
                         Text(mic.message ?? (mic.state == .running ? "Live on \(mic.deviceName ?? "the Mac's mic")" : mic.state.rawValue.capitalized))
                     }
                 }
+                Section {
+                    let np = model.state.nowPlaying
+                    if np.loopStartMs != nil {
+                        Button { model.send(.setLoop(.init(startMs: nil, endMs: nil))) } label: { Label("Stop the loop", systemImage: "repeat.circle.fill") }
+                    } else {
+                        Button { loopLines(1) } label: { Label("Loop this line", systemImage: "repeat.1") }
+                        Button { loopLines(4) } label: { Label("Loop the next four lines", systemImage: "repeat") }
+                    }
+                } header: { Text("Practice") } footer: { Text("A practice loop is not saved to the stats or recorded.") }
                 Section("Next songs") {
                     slider("Default guide vocal", "person.wave.2.fill", binding({ $0.defaultGuideVocal }) { $0.defaultGuideVocal = $1 })
                 }
@@ -402,6 +425,15 @@ struct MixerSheet: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private func loopLines(_ count: Int) {
+        guard let l = model.lyrics, !l.lines.isEmpty else { return }
+        let t = model.position
+        let i = l.lineIndex(at: t) ?? l.lines.firstIndex { $0.start > t } ?? 0
+        let last = min(l.lines.count - 1, i + count - 1)
+        let start = max(0, l.lines[i].start - 1.0), end = l.lines[last].end + 0.6
+        model.send(.setLoop(.init(startMs: Int(start * 1000), endMs: Int(end * 1000))))
     }
 
     private func slider(_ title: String, _ symbol: String, _ value: Binding<Double>) -> some View {
@@ -413,5 +445,45 @@ struct MixerSheet: View {
             }
             Slider(value: value, in: 0...1)
         }
+    }
+}
+
+import AVFoundation
+
+/// Records eight seconds of humming and asks the Mac which song it is.
+struct HumButton: View {
+    var onResult: ([SongSummary]) -> Void
+    @Environment(PadModel.self) private var model
+    @State private var recorder: AVAudioRecorder?
+    @State private var busy = false
+
+    var body: some View {
+        Button { Task { await hum() } } label: {
+            Image(systemName: recorder != nil ? "waveform.circle.fill" : busy ? "ellipsis.circle" : "music.mic.circle")
+                .font(.title2).symbolEffect(.pulse, isActive: recorder != nil)
+        }
+        .buttonStyle(.plain)
+        .disabled(busy)
+        .accessibilityLabel("Hum to search")
+    }
+
+    private func hum() async {
+        guard await AVAudioApplication.requestRecordPermission() else { model.toast = "Allow the microphone in Settings to hum a song"; return }
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker])
+        try? session.setActive(true)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("hum.m4a")
+        let settings: [String: Any] = [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 16000, AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 48000]
+        guard let r = try? AVAudioRecorder(url: url, settings: settings) else { return }
+        recorder = r
+        model.toast = "Hum the chorus for 8 seconds…"
+        r.record(forDuration: 8)
+        try? await Task.sleep(for: .seconds(8.3))
+        r.stop()
+        recorder = nil
+        busy = true
+        defer { busy = false }
+        guard let data = try? Data(contentsOf: url), let client = model.client else { return }
+        do { onResult(try await client.humSearch(data)) } catch { model.toast = error.localizedDescription }
     }
 }

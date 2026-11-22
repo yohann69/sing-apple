@@ -246,10 +246,12 @@ public enum ClientMessage: Sendable {
     case setMicPreset(String)
     /// Moves the current song's lyrics earlier (negative) or later, and remembers it for the song.
     case setLyricOffset(ms: Int)
+    /// Practice loop between two song times; nil clears it.
+    case setLoop(Loop)
     case ping
 
-    public struct Enqueue: Codable, Sendable { public var songID: SongID; public var singerIDs: [SingerID]; public var playNext: Bool
-        public init(songID: SongID, singerIDs: [SingerID], playNext: Bool = false) { self.songID = songID; self.singerIDs = singerIDs; self.playNext = playNext } }
+    public struct Enqueue: Codable, Sendable { public var songID: SongID; public var singerIDs: [SingerID]; public var playNext: Bool; public var battle: Bool?
+        public init(songID: SongID, singerIDs: [SingerID], playNext: Bool = false, battle: Bool? = nil) { self.songID = songID; self.singerIDs = singerIDs; self.playNext = playNext; self.battle = battle } }
     public struct Request: Codable, Sendable { public var track: CatalogTrack; public var singerIDs: [SingerID]
         public init(track: CatalogTrack, singerIDs: [SingerID]) { self.track = track; self.singerIDs = singerIDs } }
     public struct Move: Codable, Sendable { public var entryID: String; public var toIndex: Int
@@ -262,6 +264,8 @@ public enum ClientMessage: Sendable {
     private struct Semitones: Codable { var semitones: Int }
     private struct Preset: Codable { var preset: String }
     private struct Offset: Codable { var ms: Int }
+    public struct Loop: Codable, Sendable { public var startMs: Int?; public var endMs: Int?
+        public init(startMs: Int?, endMs: Int?) { self.startMs = startMs; self.endMs = endMs } }
 }
 
 extension ClientMessage: Codable {
@@ -284,6 +288,7 @@ extension ClientMessage: Codable {
         case "setTempo": self = .setTempo(try c.decode(Value.self, forKey: .data).value)
         case "setMicPreset": self = .setMicPreset(try c.decode(Preset.self, forKey: .data).preset)
         case "setLyricOffset": self = .setLyricOffset(ms: try c.decode(Offset.self, forKey: .data).ms)
+        case "setLoop": self = .setLoop(try c.decode(Loop.self, forKey: .data))
         case "ping": self = .ping
         case let other: throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "unknown type \(other)")
         }
@@ -306,6 +311,7 @@ extension ClientMessage: Codable {
         case .setTempo(let v): try c.encode("setTempo", forKey: .type); try c.encode(Value(value: v), forKey: .data)
         case .setMicPreset(let v): try c.encode("setMicPreset", forKey: .type); try c.encode(Preset(preset: v), forKey: .data)
         case .setLyricOffset(let v): try c.encode("setLyricOffset", forKey: .type); try c.encode(Offset(ms: v), forKey: .data)
+        case .setLoop(let v): try c.encode("setLoop", forKey: .type); try c.encode(v, forKey: .data)
         case .ping: try c.encode("ping", forKey: .type)
         }
     }
