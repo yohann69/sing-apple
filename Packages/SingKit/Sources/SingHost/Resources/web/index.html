@@ -313,7 +313,8 @@ setInterval(() => {
   const line = i >= 0 ? lyrics.lines[i].segments.map(s => s.text + (s.endsWord ? " " : "")).join("") : "♪";
   const next = lyrics.lines[i + 1] ? lyrics.lines[i + 1].segments.map(s => s.text + (s.endsWord ? " " : "")).join("") : "";
   const tr = i >= 0 ? lyrics.lines[i].translation : null;
-  const html = esc(line) + (tr ? `<small style="font-style:italic;color:var(--accent2)">${esc(tr)}</small>` : "") + (next ? `<small>${esc(next)}</small>` : "");
+  const ro = i >= 0 ? lyrics.lines[i].romanization : null;
+  const html = esc(line) + (ro ? `<small style="opacity:.8">${esc(ro)}</small>` : "") + (tr ? `<small style="font-style:italic;color:var(--accent2)">${esc(tr)}</small>` : "") + (next ? `<small>${esc(next)}</small>` : "");
   if (el.innerHTML !== html) el.innerHTML = html;
 }, 200);
 
