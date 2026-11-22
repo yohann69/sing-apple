@@ -429,7 +429,7 @@ public final class MicEngine {
             }
             if let ps = phoneNode {
                 engine.disconnectNodeOutput(ps)
-                engine.connect(ps, to: inMixer, format: phoneFormat)
+                engine.connect(ps, to: mixer, format: phoneFormat)
             }
             engine.connect(inMixer, to: tuner, format: stereo)
             engine.connect(tuner, to: eq, format: stereo)
@@ -442,7 +442,7 @@ public final class MicEngine {
         }
         configured = true
         applyGain()
-        engine.prepare()
+        try objc { engine.prepare() }
         do {
             try engine.start()
         } catch {

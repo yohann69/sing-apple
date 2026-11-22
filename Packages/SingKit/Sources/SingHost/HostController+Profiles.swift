@@ -196,10 +196,43 @@ extension HostController {
         try? await database.writer.write { db in try SettingRecord(key: "settingsProfiles", json: json).save(db) }
     }
 
+    /// The built-in profiles change only what makes them different; mics, volumes and devices stay.
+    static func applyBuiltIn(_ name: String, to s: inout SingSettings) -> Bool {
+        switch name {
+        case "Party":
+            s.playback.recordPerformances = true
+            s.privacy.familyMode = false
+            s.privacy.keepHistory = true
+            s.tv.justForFun = false
+            s.playback.difficulty = "normal"
+        case "Family":
+            s.privacy.familyMode = true
+            s.privacy.guestsCanCreateSingers = true
+            s.playback.difficulty = "easy"
+            s.tv.justForFun = false
+        case "Practice":
+            s.playback.countdownBetweenSongs = false
+            s.playback.defaultGuideVocal = 0.5
+            s.tv.justForFun = true
+            s.privacy.keepHistory = false
+            s.playback.recordPerformances = false
+        default:
+            return false
+        }
+        return true
+    }
+
     /// Party-facing parts only; services, storage, network and locks stay as the owner set them.
     public func applySettingsProfile(_ name: String, by who: String) async {
         guard let p = await settingsProfiles().first(where: { $0.name == name }) else { return }
         var next = settings
+        let saved = try? await database.writer.read { try SettingRecord.fetchOne($0, key: "settingsProfiles") }
+        let isCustom = saved.flatMap { try? SingProtocol.decoder().decode([SettingsProfile].self, from: Data($0.json.utf8)) }?.contains { $0.name == name } ?? false
+        if !isCustom, Self.applyBuiltIn(name, to: &next) {
+            settings = next
+            audit(who, "switched to the \(name) settings")
+            return
+        }
         next.tv = p.settings.tv
         next.playback = p.settings.playback
         next.queue = p.settings.queue

@@ -221,7 +221,16 @@
     "%lld ♥": {},
     "%lld%%": {},
     "%lld:00": {},
-    "+0.1 s": {},
+    "+0.1 s": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+0,1 s"
+          }
+        }
+      }
+    },
     "000000": {},
     "1 item": {
       "localizations": {
@@ -714,12 +723,32 @@
         }
       }
     },
+    "Clear search": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer la recherche"
+          }
+        }
+      }
+    },
     "Clear this cache?": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
             "value": "Vider ce cache ?"
+          }
+        }
+      }
+    },
+    "Clear this song's cache": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vider le cache de cette chanson"
           }
         }
       }
@@ -1130,6 +1159,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Le mode famille masque les chansons explicites du catalogue et celles marquées « pas pour les enfants ». Sans historique, rien de la soirée n'est gardé ni enregistré."
+          }
+        }
+      }
+    },
+    "Favorite": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Favori"
           }
         }
       }
@@ -2083,6 +2122,16 @@
         }
       }
     },
+    "More": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus"
+          }
+        }
+      }
+    },
     "Most sung: %@": {
       "localizations": {
         "fr": {
@@ -2979,6 +3028,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Lecture"
+          }
+        }
+      }
+    },
+    "Play %@": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lire %@"
           }
         }
       }
@@ -4151,6 +4210,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pistes, paroles et justesse sont refaites quand la chanson repasse dans la file. Vos fichiers de musique, l'historique et les favoris ne sont jamais supprimés."
+          }
+        }
+      }
+    },
+    "Stop": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêter"
           }
         }
       }
