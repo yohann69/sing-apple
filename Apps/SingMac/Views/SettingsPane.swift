@@ -83,9 +83,24 @@ struct SettingsPane: View {
                 TextField("Sing API address", text: $host.settings.services.singAPIBase)
                 Toggle("NetEase (word synced)", isOn: $host.settings.services.neteaseEnabled)
                 Toggle("Kugou (word synced)", isOn: $host.settings.services.kugouEnabled)
+                Toggle("QQ Music (line synced)", isOn: $host.settings.services.qqEnabled)
+                Toggle("Musixmatch (word synced when available)", isOn: $host.settings.services.musixmatchEnabled)
                 Toggle("LRCLIB (line synced)", isOn: $host.settings.services.lrclibEnabled)
                 Toggle("Word timing with on-device AI when only line timing exists", isOn: $host.settings.services.aiAlignmentEnabled)
                 Toggle("Search Apple Music and Deezer catalogs from the pads", isOn: $host.settings.services.catalogSearchEnabled)
+                VStack(alignment: .leading) {
+                    Text("Order when two sources are equally precise")
+                    List {
+                        ForEach(host.settings.services.providerOrder, id: \.self) { Text($0) }
+                            .onMove { host.settings.services.providerOrder.move(fromOffsets: $0, toOffset: $1) }
+                    }
+                    .frame(height: 150)
+                }
+                Stepper("Give up on a source after \(Int(host.settings.services.timeoutSeconds)) s", value: $host.settings.services.timeoutSeconds, in: 2...20)
+                Toggle("Share AI-synced and fixed lyrics with the Sing database", isOn: $host.settings.services.uploadsEnabled)
+                TextField("Upload API address", text: $host.settings.services.uploadAPIBase)
+                if host.pendingUploads > 0 { LabeledContent("Waiting to upload", value: "\(host.pendingUploads)") }
+                Button("Reset these to the defaults") { host.settings.services = ServiceSettings() }
                 HStack {
                     Button("Test connection") { testAPI() }
                     if let apiStatus { Text(apiStatus).foregroundStyle(.secondary) }

@@ -70,6 +70,7 @@ public final class HostController: HostAPI {
     @ObservationIgnored var channelKeepers = (0..<4).map { _ in ScoreKeeper() }
     @ObservationIgnored var usedLoop = false
     @ObservationIgnored var inMaintenance = false
+    @ObservationIgnored var uploads: [PendingUpload] = []
     @ObservationIgnored var resumeAt: (SongID, Double)?
     @ObservationIgnored var padBattery: [String: Double] = [:]
     @ObservationIgnored var padLastActive: [String: Date] = [:]
@@ -205,6 +206,7 @@ public final class HostController: HostAPI {
         await loadEvicted()
         await loadSongPrefs()
         removeStaleTakes()
+        await loadUploads()
         Self.installCrashLogging()
         playback.onConfigurationChange = { [weak self] in self?.outputChanged() }
         await restoreQueue()
@@ -356,6 +358,7 @@ public final class HostController: HostAPI {
     func postProcess(_ id: SongID) async {
         separationProgress(id, 0.75, .processing)
         await refreshLyrics(id)
+        await considerUpload(id)
         separationProgress(id, 0.88, .processing)
         if let record = try? await library.song(id) {
             let track = await loadPitch(record)
@@ -864,6 +867,7 @@ public final class HostController: HostAPI {
             lastStorageCheck = .now
             dailyBackup()
             Task { await maintenanceIfDue() }
+            Task { await processUploads() }
             Task { await enforceStorageLimits() }
         }
     }

@@ -65,7 +65,7 @@ public enum SpeechAligner {
     public static func upgrade(_ lyrics: Lyrics, vocals: URL, duration: TimeInterval, languageHint: String?) async throws -> Lyrics? {
         let lang = language(for: lyrics, hint: languageHint)
         let words = try await recognize(vocals: vocals, language: lang)
-        let result = LyricsAligner.align(lyrics, recognized: words, duration: duration)
+        let result = LyricsAligner.align(lyrics, recognized: words, duration: duration, language: lang)
         if lyrics.kind == .plain && result.matchedRatio < 0.3 { return nil }
         if result.matchedRatio < 0.15 { return nil }
         var out = result.lyrics

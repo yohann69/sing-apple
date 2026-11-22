@@ -23,6 +23,8 @@ public enum LyricsSource: String, Codable, Sendable {
     case lrclib
     case netease
     case kugou
+    case qq
+    case musixmatch
     case embedded
     case sidecar
     case ai
@@ -53,6 +55,8 @@ public struct LyricLine: Codable, Sendable, Hashable, Identifiable {
     public var background: [LyricSegment]
     public var translation: String?
     public var romanization: String?
+    /// 0 to 1: how sure the AI timing is for this line (1 when heard, lower when estimated).
+    public var confidence: Double?
 
     public init(id: Int, start: TimeInterval, end: TimeInterval, agent: String? = nil, segments: [LyricSegment], background: [LyricSegment] = [], translation: String? = nil, romanization: String? = nil) {
         self.id = id
@@ -111,6 +115,10 @@ public struct Lyrics: Codable, Sendable, Hashable {
     public var language: String?
     public var agents: [Agent]
     public var lines: [LyricLine]
+    /// AI timing that should be checked by a person before it is shared.
+    public var needsReview: Bool?
+    /// What produced the timing, like "apple-speech/26 + sing-aligner/2".
+    public var model: String?
 
     public init(kind: LyricsKind, source: LyricsSource, language: String? = nil, agents: [Agent] = [], lines: [LyricLine]) {
         self.kind = kind

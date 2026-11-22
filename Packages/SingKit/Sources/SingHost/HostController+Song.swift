@@ -53,6 +53,8 @@ extension HostController {
     public func saveSyncedLyrics(_ id: SongID, _ l: Lyrics) async throws {
         guard let r = try await library.song(id) else { throw QueueError.notFound }
         try lyricsService.saveManual(r, l)
+        try? FileManager.default.removeItem(at: paths.songCache(r.audioHash).appendingPathComponent("uploaded"))
+        defer { Task { await considerUpload(id) } }
         try? await library.update(id) { $0.lyricOffsetMs = 0; $0.lyricsKind = l.kind }
         if nowPlaying.entry?.song.id == id {
             nowPlaying.lyricOffsetMs = 0

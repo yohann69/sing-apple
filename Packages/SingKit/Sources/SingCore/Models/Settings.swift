@@ -232,6 +232,13 @@ public struct ServiceSettings: Codable, Sendable, Hashable {
     public var lrclibEnabled = true
     public var neteaseEnabled = true
     public var kugouEnabled = true
+    public var qqEnabled = true
+    public var musixmatchEnabled = false
+    /// Provider names, first tried first when their timing is equally rich.
+    public var providerOrder = ["Sing", "NetEase", "QQ Music", "Kugou", "Musixmatch", "LRCLIB"]
+    public var uploadAPIBase = "https://upload-api-production.up.railway.app"
+    /// Share AI-synced and hand-fixed lyrics with the Sing lyrics database.
+    public var uploadsEnabled = true
     public var aiAlignmentEnabled = true
     public var catalogSearchEnabled = true
     public var timeoutSeconds: Double = 6
@@ -247,6 +254,11 @@ public struct ServiceSettings: Codable, Sendable, Hashable {
         lrclibEnabled = v(.lrclibEnabled, d.lrclibEnabled)
         neteaseEnabled = v(.neteaseEnabled, d.neteaseEnabled)
         kugouEnabled = v(.kugouEnabled, d.kugouEnabled)
+        qqEnabled = v(.qqEnabled, d.qqEnabled)
+        musixmatchEnabled = v(.musixmatchEnabled, d.musixmatchEnabled)
+        providerOrder = v(.providerOrder, d.providerOrder)
+        uploadAPIBase = v(.uploadAPIBase, d.uploadAPIBase)
+        uploadsEnabled = v(.uploadsEnabled, d.uploadsEnabled)
         aiAlignmentEnabled = v(.aiAlignmentEnabled, d.aiAlignmentEnabled)
         catalogSearchEnabled = v(.catalogSearchEnabled, d.catalogSearchEnabled)
         timeoutSeconds = v(.timeoutSeconds, d.timeoutSeconds)
