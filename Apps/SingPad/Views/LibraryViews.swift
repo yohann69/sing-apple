@@ -233,10 +233,14 @@ struct StatsView: View {
     @State private var period: StatsPeriod = .tonight
     @State private var data: StatsResponse?
     @State private var mine: SingerStats?
+    @State private var recap: PartyRecap?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                if let board = model.state.leaderboard, !board.isEmpty {
+                    card("Tonight's top scores") { ranked(board.map { ($0.name, nil, $0.count) }) }
+                }
                 Picker("Period", selection: $period) {
                     Text("Tonight").tag(StatsPeriod.tonight)
                     Text("This year").tag(StatsPeriod.year)
@@ -262,6 +266,12 @@ struct StatsView: View {
                     card("Top songs") { ranked(d.topSongs.map { ("\($0.song.title)", $0.song.artist, $0.count) }) }
                     card("Top artists") { ranked(d.topArtists.map { ($0.name, nil, $0.count) }) }
                 }
+                if let r = model.state.recap ?? recap {
+                    card(r.name ?? "Last party, \(r.startedAt.formatted(date: .abbreviated, time: .omitted))") {
+                        Text("\(r.songs) songs · \(r.minutes) minutes · \(r.singers) singers").font(.title3.bold())
+                        ForEach(r.highlights, id: \.self) { Text($0) }
+                    }
+                }
                 if let mine {
                     card("You, \(mine.singer.name)") {
                         Text("\(mine.plays) songs sung").font(.title3.bold())
@@ -271,6 +281,7 @@ struct StatsView: View {
             }
             .padding(20)
         }
+        .task { recap = try? await model.client?.recap() }
         .navigationTitle("Stats")
         .toolbar { NavigationLink { PadRecordingsView() } label: { Label("Recordings", systemImage: "waveform") } }
         .task(id: period) { data = try? await model.client?.stats(period) }

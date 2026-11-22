@@ -31,6 +31,8 @@ public struct PerformanceResult: Codable, Sendable, Hashable {
     public var recordingID: Int64?
     /// A link anyone on the same Wi-Fi can open to listen.
     public var shareURL: String?
+    /// Each duet partner's own score, from the lines assigned to them.
+    public var perSinger: [RankedName]?
 
     public init(entryID: String, songTitle: String, artist: String, singers: [Singer], total: Int?, grade: String?, title: String, comment: String, categories: [ScoreCategory], badges: [String], leaderboard: [RankedName], endedAt: Date = .now) {
         self.entryID = entryID
@@ -61,9 +63,11 @@ public struct ScoreKeeper: Sendable {
 
     public var voicedCount: Int { frames.filter { $0.midi != nil }.count }
 
-    public func result(track: PitchTrack?, upTo end: TimeInterval) -> (total: Int, categories: [ScoreCategory])? {
-        guard let track, voicedCount >= 20 else { return nil }
-        let notes = track.notes.filter { $0.end <= end + 0.5 }
+    /// `tolerance` is how far off pitch still counts as a hit, in semitones; `during` limits scoring to some moments (a duet part).
+    public func result(track: PitchTrack?, upTo end: TimeInterval, tolerance: Float = 1, during: ((Double) -> Bool)? = nil) -> (total: Int, categories: [ScoreCategory])? {
+        let frames = during.map { f in self.frames.filter { f($0.time) } } ?? self.frames
+        guard let track, frames.filter({ $0.midi != nil }).count >= 20 else { return nil }
+        let notes = track.notes.filter { $0.end <= end + 0.5 && (during?(($0.start + $0.end) / 2) ?? true) }
         guard notes.count >= 3 else { return nil }
 
         var targetFrames = 0, hits = 0
@@ -79,7 +83,7 @@ public struct ScoreKeeper: Sendable {
             guard let m = f.midi else { continue }
             let target = notes[noteIdx].midi(at: f.time)
             let folded = PitchTrack.foldOctave(m, toward: target)
-            if abs(folded - target) < 1 { hits += 1 }
+            if abs(folded - target) < tolerance { hits += 1 }
             perNote[noteIdx, default: []].append(folded - target)
         }
         for (i, n) in notes.enumerated() {

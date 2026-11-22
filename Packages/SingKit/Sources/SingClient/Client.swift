@@ -107,6 +107,7 @@ public struct SingAPIClient: Sendable {
         let _: [String: Bool] = try await send("v1/owner/pads/\(padID)", method: "DELETE", body: [String: String]())
     }
 
+    public func recap() async throws -> PartyRecap { try await get("v1/recap") }
     public func songSettings(_ id: SongID) async throws -> SongSettings { try await get("v1/songs/\(id)/settings") }
     @discardableResult
     public func updateSongSettings(_ id: SongID, _ s: SongSettings) async throws -> SongSettings { try await send("v1/songs/\(id)/settings", method: "PUT", body: s) }

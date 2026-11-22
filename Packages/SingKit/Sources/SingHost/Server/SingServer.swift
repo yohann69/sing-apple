@@ -45,6 +45,7 @@ public protocol HostAPI: AnyObject, Sendable {
     func songSettings(_ id: SongID) async -> SongSettings?
     func updateSongSettings(_ id: SongID, _ s: SongSettings) async
     func exportDatabase() async throws -> Data
+    func latestRecap() async -> PartyRecap?
 }
 
 public struct NewSinger: Codable, Sendable {
@@ -256,6 +257,9 @@ public final class SingServer: Sendable {
                 let s = try SingProtocol.decoder().decode(SongSettings.self, from: req.body)
                 await api.updateSongSettings(id, s)
                 return json(s)
+            case ("GET", ["recap"]):
+                guard let r = await api.latestRecap() else { return error(404, "notFound", "No party yet") }
+                return json(r)
             case ("GET", ["stats"]):
                 return json(try await api.stats(req.query["period"].flatMap(StatsPeriod.init(rawValue:)) ?? .tonight))
             case ("GET", let p) where p.count == 3 && p[0] == "stats" && p[1] == "singers":

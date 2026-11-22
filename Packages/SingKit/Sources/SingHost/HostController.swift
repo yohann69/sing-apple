@@ -63,6 +63,8 @@ public final class HostController: HostAPI {
     @ObservationIgnored var lastStorageCheck = Date.distantPast
     @ObservationIgnored var songPrefs: [SongID: SongPrefs] = [:]
     @ObservationIgnored var take: RecordingTake?
+    public internal(set) var tonightBoard: [RankedName] = []
+    public internal(set) var recap: PartyRecap?
     @ObservationIgnored var sleepAssertion: IOPMAssertionID = 0
     public internal(set) var isReplaying = false
     @ObservationIgnored var howlSince: Date?
@@ -391,7 +393,7 @@ public final class HostController: HostAPI {
         guard let sung = mic.livePitch.midi.map({ $0 - shift }) else { return }
         let target = pitchTrack?.target(at: t)
         let folded = target.map { PitchTrack.foldOctave(sung, toward: $0) } ?? sung
-        let hit = target.map { abs(folded - $0) < 1.0 } ?? false
+        let hit = target.map { abs(folded - $0) < scoreTolerance } ?? false
         livePoints.append(LivePitchPoint(time: t, midi: folded, onTarget: hit))
         if target != nil {
             scoreFrames += 1
@@ -526,7 +528,14 @@ public final class HostController: HostAPI {
             try db.execute(sql: "UPDATE session SET endedAt = ? WHERE id = ?", arguments: [Date.now, s.id])
         }
         session = nil
+        tonightBoard = []
+        recap = await partyRecap(sessionID: s.id)
         scheduleBroadcast()
+        let shown = recap
+        Task {
+            try? await Task.sleep(for: .seconds(90))
+            if self.recap == shown { self.recap = nil; self.scheduleBroadcast() }
+        }
     }
 
     // MARK: Playback
@@ -538,6 +547,7 @@ public final class HostController: HostAPI {
         playback.stop()
         lyrics = nil
         pitchTrack = nil
+        if queue.entries.isEmpty, nowPlaying.entry != nil { _ = await autoFillIfNeeded() }
         guard let entry = queue.popNext() else {
             nowPlaying = NowPlaying(state: .idle, guideVocal: settings.playback.defaultGuideVocal)
             persistQueue()
@@ -547,6 +557,7 @@ public final class HostController: HostAPI {
         persistQueue()
         notifyUpcoming()
         if session == nil { await startSession() }
+        recap = nil
         nowPlaying = NowPlaying(entry: entry, state: .preparing, positionMs: 0, positionAt: .now, guideVocal: settings.playback.defaultGuideVocal)
         scheduleBroadcast()
         guard let record = try? await library.song(entry.song.id) else { return }
@@ -680,7 +691,7 @@ public final class HostController: HostAPI {
     func songFinished(skipped: Bool) {
         if isReplaying { replayFinished(); return }
         let entry = nowPlaying.entry
-        let scored = scoreKeeper.result(track: pitchTrack, upTo: playback.duration)
+        let scored = scoreKeeper.result(track: pitchTrack, upTo: playback.duration, tolerance: scoreTolerance)
         nowPlaying.state = .finished
         pitchTask?.cancel()
         if let entry {
@@ -695,6 +706,7 @@ public final class HostController: HostAPI {
                 comment: total == nil ? "No singing was picked up by the mic, but what a performance." : Self.comment(total!, cats),
                 categories: cats, badges: badges, leaderboard: []
             )
+            lastResult?.perSinger = duetScores(entry)
         }
         finishTake(playID: currentPlay?.id, score: scored?.total)
         finishCurrentPlay(skipped: skipped, score: scored.map { Double($0.total) })
@@ -705,6 +717,7 @@ public final class HostController: HostAPI {
             try? await Task.sleep(for: .milliseconds(400))
             if let board = try? await self.leaderboard(), self.lastResult?.entryID == id {
                 self.lastResult?.leaderboard = board
+                self.tonightBoard = board
                 self.scheduleBroadcast()
             }
         }
@@ -895,12 +908,15 @@ public final class HostController: HostAPI {
     public var liveStateSnapshot: LiveState {
         var np = nowPlaying
         if np.state == .playing { np.positionMs = Int(playback.position * 1000); np.positionAt = .now }
-        return LiveState(
+        var state = LiveState(
             nowPlaying: np,
             queue: queue.withEstimates(remainingCurrent: max(0, playback.duration - playback.position)),
             settings: settings, singers: singers, session: session, preparing: preparing, requests: requests, mic: micStatus,
             result: nowPlaying.state == .finished ? lastResult : nil
         )
+        state.leaderboard = tonightBoard.isEmpty ? nil : tonightBoard
+        state.recap = recap
+        return state
     }
 
     func scheduleBroadcast() {

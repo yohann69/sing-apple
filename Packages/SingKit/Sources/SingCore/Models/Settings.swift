@@ -46,6 +46,8 @@ public struct TVDisplaySettings: Codable, Sendable, Hashable {
     public var showScoreReveal = true
     public var showScoreDetails = true
     public var showConfetti = true
+    /// Tonight's top scores between songs.
+    public var showLeaderboard = true
     public var estimatedWordWipe = true
     public var resultSeconds: Double = 10
     public var lyricSize: Double = 96
@@ -74,6 +76,7 @@ public struct TVDisplaySettings: Codable, Sendable, Hashable {
         showScoreReveal = v(.showScoreReveal, d.showScoreReveal)
         showScoreDetails = v(.showScoreDetails, d.showScoreDetails)
         showConfetti = v(.showConfetti, d.showConfetti)
+        showLeaderboard = v(.showLeaderboard, d.showLeaderboard)
         estimatedWordWipe = v(.estimatedWordWipe, d.estimatedWordWipe)
         lyricSize = v(.lyricSize, d.lyricSize)
         resultSeconds = max(7, v(.resultSeconds, d.resultSeconds))
@@ -106,6 +109,8 @@ public struct PlaybackSettings: Codable, Sendable, Hashable {
     public var feedbackProtection = true
     /// Evens out loudness between songs.
     public var normalizeLoudness = true
+    /// "easy", "normal" or "hard": how close to the note still counts.
+    public var difficulty = "normal"
     /// Record each performance (music plus voice) for replay and sharing.
     public var recordPerformances = false
     /// Recordings older than this are deleted unless kept. 0 keeps them forever.
@@ -129,6 +134,7 @@ public struct PlaybackSettings: Codable, Sendable, Hashable {
         micEcho = v(.micEcho, d.micEcho)
         feedbackProtection = v(.feedbackProtection, d.feedbackProtection)
         normalizeLoudness = v(.normalizeLoudness, d.normalizeLoudness)
+        difficulty = v(.difficulty, d.difficulty)
         recordPerformances = v(.recordPerformances, d.recordPerformances)
         keepRecordingsDays = v(.keepRecordingsDays, d.keepRecordingsDays)
     }
@@ -152,6 +158,8 @@ public enum MicPreset: String, Codable, Sendable, CaseIterable {
 public struct QueueSettings: Codable, Sendable, Hashable {
     /// Singers take turns: a new song goes after everyone else's next song.
     public var fairRotation = true
+    /// When the queue runs dry, queue a crowd favourite as an open mic.
+    public var autoFill = false
     public var guestsCanQueue = true
     public var guestsCanRemoveOwn = true
     public var maxQueuedPerSinger = 0
@@ -163,6 +171,7 @@ public struct QueueSettings: Codable, Sendable, Hashable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         func v<T: Decodable>(_ k: CodingKeys, _ fallback: T) -> T { (try? c.decode(T.self, forKey: k)) ?? fallback }
         fairRotation = v(.fairRotation, d.fairRotation)
+        autoFill = v(.autoFill, d.autoFill)
         guestsCanQueue = v(.guestsCanQueue, d.guestsCanQueue)
         guestsCanRemoveOwn = v(.guestsCanRemoveOwn, d.guestsCanRemoveOwn)
         maxQueuedPerSinger = v(.maxQueuedPerSinger, d.maxQueuedPerSinger)

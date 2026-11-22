@@ -16,6 +16,8 @@ public struct TVStageModel {
     public var queuePreview: [QueueEntry]
     public var pitch: PitchTrack?
     public var result: PerformanceResult?
+    public var leaderboard: [RankedName] = []
+    public var recap: PartyRecap?
     public var live: () -> (points: [LivePitchPoint], score: Int?) = { ([], nil) }
 
     public init(nowPlaying: NowPlaying, lyrics: Lyrics?, upNext: QueueEntry?, settings: TVDisplaySettings, artwork: Image?, joinURL: String, guestCode: String, preparingProgress: Double?, countdownEnd: Date?, duration: TimeInterval, queuePreview: [QueueEntry]) {
@@ -80,7 +82,11 @@ public struct TVStageView: View {
     @ViewBuilder private func content(scale: CGFloat) -> some View {
         switch model.nowPlaying.state {
         case .idle:
-            IdleStage(model: model, scale: scale).transition(.blurFade)
+            if let recap = model.recap {
+                RecapStage(recap: recap, scale: scale).transition(.blurFade)
+            } else {
+                IdleStage(model: model, scale: scale).transition(.blurFade)
+            }
         case .preparing:
             PreparingStage(model: model, scale: scale).transition(.blurFade)
         case .countdown:
@@ -415,6 +421,9 @@ struct IdleStage: View {
                     }
                     .font(.system(size: 30 * scale))
                 }
+                if model.settings.showLeaderboard, !model.leaderboard.isEmpty {
+                    LeaderboardPanel(board: model.leaderboard, scale: scale).padding(.top, 20 * scale)
+                }
             }
             Spacer()
             if model.settings.showJoinQR {
@@ -486,6 +495,11 @@ struct CountdownStage: View {
                     .animation(.spring(response: 0.4, dampingFraction: 0.7), value: Int(ceil(remaining)))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .bottomTrailing) {
+                if model.settings.showLeaderboard, !model.leaderboard.isEmpty {
+                    LeaderboardPanel(board: Array(model.leaderboard.prefix(3)), scale: scale * 0.8).padding(40 * scale)
+                }
+            }
         }
     }
 }
@@ -502,5 +516,68 @@ struct FinishedStage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Tonight's best scores, shown between songs.
+struct LeaderboardPanel: View {
+    var board: [RankedName]
+    var scale: CGFloat
+    @Environment(\.singTheme) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12 * scale) {
+            Text("Tonight's top scores").font(.system(size: 26 * scale, weight: .bold)).opacity(0.85)
+            ForEach(Array(board.prefix(5).enumerated()), id: \.element.id) { i, r in
+                HStack(spacing: 14 * scale) {
+                    Text(["🥇", "🥈", "🥉", "4", "5"][i]).frame(width: 40 * scale)
+                    Circle().fill(r.colorHex.map { Color(hex: $0) } ?? theme.accent).frame(width: 14 * scale, height: 14 * scale)
+                    Text(r.name).fontWeight(.semibold)
+                    Spacer(minLength: 30 * scale)
+                    Text("\(r.count)").font(.system(size: 28 * scale, weight: .black, design: .rounded)).monospacedDigit()
+                }
+                .font(.system(size: 26 * scale))
+            }
+        }
+        .padding(28 * scale)
+        .frame(width: 520 * scale)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 32 * scale))
+    }
+}
+
+/// The end-of-party summary.
+struct RecapStage: View {
+    var recap: PartyRecap
+    var scale: CGFloat
+    @Environment(\.singTheme) private var theme
+
+    var body: some View {
+        VStack(spacing: 40 * scale) {
+            Text("What a night!")
+                .font(.system(size: 120 * scale, weight: .black, design: .rounded))
+                .foregroundStyle(LinearGradient(colors: [theme.accentSoft, theme.accent], startPoint: .top, endPoint: .bottom))
+            HStack(spacing: 30 * scale) {
+                stat("\(recap.songs)", "songs")
+                stat("\(recap.minutes)", "minutes")
+                stat("\(recap.singers)", "singers")
+                if let b = recap.bestScore { stat("\(b.count)", "best score") }
+            }
+            VStack(spacing: 14 * scale) {
+                ForEach(recap.highlights, id: \.self) { h in
+                    Text(h).font(.system(size: 34 * scale, weight: .semibold))
+                }
+            }
+            Text("Thanks for singing.").font(.system(size: 28 * scale)).opacity(0.7)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func stat(_ value: String, _ label: String) -> some View {
+        VStack(spacing: 6 * scale) {
+            Text(value).font(.system(size: 80 * scale, weight: .black, design: .rounded)).monospacedDigit()
+            Text(label).font(.system(size: 26 * scale, weight: .semibold)).opacity(0.75)
+        }
+        .frame(width: 260 * scale, height: 200 * scale)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 32 * scale))
     }
 }

@@ -132,6 +132,10 @@ public struct LiveState: Codable, Sendable, Hashable {
     public var requests: [SongRequest] = []
     public var mic: MicStatus? = nil
     public var result: PerformanceResult? = nil
+    /// Tonight's best scores, for the TV between songs.
+    public var leaderboard: [RankedName]? = nil
+    /// Set for a while after the host ends the party.
+    public var recap: PartyRecap? = nil
     /// Separation progress keyed by song id as a string, so JSON keeps an object.
     public var preparingByID: [String: Double]
 

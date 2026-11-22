@@ -59,6 +59,18 @@ struct ScoreRevealStage: View {
             }
             .font(.system(size: 32 * scale, weight: .bold))
             .reveal(appear(elapsed, at: 0.2))
+            if let parts = result.perSinger, parts.count > 1 {
+                HStack(spacing: 30 * scale) {
+                    ForEach(parts) { p in
+                        VStack(spacing: 2 * scale) {
+                            Text("\(p.count)").font(.system(size: 48 * scale, weight: .black, design: .rounded)).monospacedDigit()
+                            Text(p.name).font(.system(size: 22 * scale, weight: .semibold)).opacity(0.8)
+                        }
+                        .foregroundStyle(p.colorHex.map { Color(hex: $0) } ?? theme.text)
+                    }
+                }
+                .opacity(appear(elapsed, at: 3))
+            }
             if let total, let countUp {
                 ZStack {
                     Circle().fill(.white).blur(radius: 90 * scale).opacity(0.22).padding(60 * scale)
