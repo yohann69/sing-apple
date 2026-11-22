@@ -138,6 +138,8 @@ public struct LiveState: Codable, Sendable, Hashable {
     public var recap: PartyRecap? = nil
     /// The guest join link the TV shows, for screens other than the Mac's own.
     public var joinURL: String? = nil
+    /// Short facts about tonight for the idle screen.
+    public var funFacts: [String]? = nil
     /// Separation progress keyed by song id as a string, so JSON keeps an object.
     public var preparingByID: [String: Double]
 
@@ -180,6 +182,8 @@ public enum ServerMessage: Sendable {
     case youreUp(YoureUp)
     case toast(Toast)
     case error(ErrorBody)
+    /// Live mic levels, several times a second while someone sings.
+    case meter(Meter)
 
     public struct Hello: Codable, Sendable { public var server: ServerInfo; public var role: PadRole; public var padID: String
         public init(server: ServerInfo, role: PadRole, padID: String) { self.server = server; self.role = role; self.padID = padID } }
@@ -189,6 +193,8 @@ public enum ServerMessage: Sendable {
         public init(songID: SongID, progress: Double, readiness: Readiness) { self.songID = songID; self.progress = progress; self.readiness = readiness } }
     public struct YoureUp: Codable, Sendable { public var songsAway: Int; public var entryID: String; public var singerID: SingerID
         public init(songsAway: Int, entryID: String, singerID: SingerID) { self.songsAway = songsAway; self.entryID = entryID; self.singerID = singerID } }
+    public struct Meter: Codable, Sendable { public var levels: [Float]
+        public init(levels: [Float]) { self.levels = levels } }
     public struct Toast: Codable, Sendable { public var message: String
         public init(message: String) { self.message = message } }
 }
@@ -206,6 +212,7 @@ extension ServerMessage: Codable {
         case "youreUp": self = .youreUp(try c.decode(YoureUp.self, forKey: .data))
         case "toast": self = .toast(try c.decode(Toast.self, forKey: .data))
         case "error": self = .error(try c.decode(ErrorBody.self, forKey: .data))
+        case "meter": self = .meter(try c.decode(Meter.self, forKey: .data))
         case let other: throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "unknown type \(other)")
         }
     }
@@ -220,6 +227,7 @@ extension ServerMessage: Codable {
         case .youreUp(let v): try c.encode("youreUp", forKey: .type); try c.encode(v, forKey: .data)
         case .toast(let v): try c.encode("toast", forKey: .type); try c.encode(v, forKey: .data)
         case .error(let v): try c.encode("error", forKey: .type); try c.encode(v, forKey: .data)
+        case .meter(let v): try c.encode("meter", forKey: .type); try c.encode(v, forKey: .data)
         }
     }
 }

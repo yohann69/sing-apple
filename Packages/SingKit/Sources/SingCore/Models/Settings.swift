@@ -11,6 +11,8 @@ public struct SingSettings: Codable, Sendable, Hashable {
     public var system = SystemSettings()
     public var network = NetworkSettings()
     public var privacy = PrivacySettings()
+    /// Who may change each section: "guests", "hosts" (default) or "mac".
+    public var locks: [String: String] = [:]
 
     public init() {}
 
@@ -25,6 +27,7 @@ public struct SingSettings: Codable, Sendable, Hashable {
         system = (try? c.decode(SystemSettings.self, forKey: .system)) ?? SystemSettings()
         network = (try? c.decode(NetworkSettings.self, forKey: .network)) ?? NetworkSettings()
         privacy = (try? c.decode(PrivacySettings.self, forKey: .privacy)) ?? PrivacySettings()
+        locks = (try? c.decode([String: String].self, forKey: .locks)) ?? [:]
     }
 }
 
@@ -51,6 +54,16 @@ public struct TVDisplaySettings: Codable, Sendable, Hashable {
     /// Latin spelling under lyrics in other scripts.
     public var showRomanization = true
     public var showApplause = true
+    /// No numbers anywhere: no live score, no totals, no leaderboard.
+    public var justForFun = false
+    /// "default", "rounded", "serif" or "mono".
+    public var lyricFont = "default"
+    /// Lines shown before and after the one being sung.
+    public var contextLines = 1
+    /// Fun facts about the night on the idle screen.
+    public var showFunStats = true
+    /// Pairing code for host pads in a corner of the TV.
+    public var showHostCode = false
     public var estimatedWordWipe = true
     public var resultSeconds: Double = 10
     public var lyricSize: Double = 96
@@ -82,6 +95,11 @@ public struct TVDisplaySettings: Codable, Sendable, Hashable {
         showLeaderboard = v(.showLeaderboard, d.showLeaderboard)
         showRomanization = v(.showRomanization, d.showRomanization)
         showApplause = v(.showApplause, d.showApplause)
+        justForFun = v(.justForFun, d.justForFun)
+        lyricFont = v(.lyricFont, d.lyricFont)
+        contextLines = v(.contextLines, d.contextLines)
+        showFunStats = v(.showFunStats, d.showFunStats)
+        showHostCode = v(.showHostCode, d.showHostCode)
         estimatedWordWipe = v(.estimatedWordWipe, d.estimatedWordWipe)
         lyricSize = v(.lyricSize, d.lyricSize)
         resultSeconds = max(7, v(.resultSeconds, d.resultSeconds))
@@ -96,6 +114,8 @@ public enum TVBackground: String, Codable, Sendable, CaseIterable {
     case artworkBlobs
     case artwork
     case plain
+    /// A looping video chosen on the Mac.
+    case video
 }
 
 public struct PlaybackSettings: Codable, Sendable, Hashable {
@@ -114,6 +134,15 @@ public struct PlaybackSettings: Codable, Sendable, Hashable {
     public var feedbackProtection = true
     /// Evens out loudness between songs.
     public var normalizeLoudness = true
+    /// Mix each mic input with its own volume.
+    public var separateMics = false
+    public var micChannelGains: [Double] = [1, 1, 1, 1]
+    /// Which input channel each singer slot uses: slot 0 is the first singer of a song.
+    public var micSlots: [Int] = [0, 1, 2, 3]
+    /// Light real-time pitch correction strength, 0 is off.
+    public var pitchCorrection: Double = 0
+    /// Seconds of overlap between songs when the next one is ready, 0 is off.
+    public var crossfadeSeconds: Double = 0
     /// "easy", "normal" or "hard": how close to the note still counts.
     public var difficulty = "normal"
     /// Record each performance (music plus voice) for replay and sharing.
@@ -140,6 +169,11 @@ public struct PlaybackSettings: Codable, Sendable, Hashable {
         feedbackProtection = v(.feedbackProtection, d.feedbackProtection)
         normalizeLoudness = v(.normalizeLoudness, d.normalizeLoudness)
         difficulty = v(.difficulty, d.difficulty)
+        separateMics = v(.separateMics, d.separateMics)
+        micChannelGains = v(.micChannelGains, d.micChannelGains)
+        micSlots = v(.micSlots, d.micSlots)
+        pitchCorrection = v(.pitchCorrection, d.pitchCorrection)
+        crossfadeSeconds = v(.crossfadeSeconds, d.crossfadeSeconds)
         recordPerformances = v(.recordPerformances, d.recordPerformances)
         keepRecordingsDays = v(.keepRecordingsDays, d.keepRecordingsDays)
     }

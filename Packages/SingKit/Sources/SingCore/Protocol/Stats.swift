@@ -55,6 +55,10 @@ public struct StatsResponse: Codable, Sendable, Hashable {
     public var mostSkipped: [RankedSong]
     public var busiestNights: [NightSummary]
     public var decades: [RankedName]
+    public var genres: [RankedName]?
+    public var duetPairs: [RankedName]?
+    /// Average score per night, oldest first.
+    public var scoreTrend: [RankedName]?
 
     public init(period: StatsPeriod, totalPlays: Int = 0, totalMinutes: Int = 0, distinctSongs: Int = 0, topSongs: [RankedSong] = [], topArtists: [RankedName] = [], topSingers: [RankedName] = [], mostSkipped: [RankedSong] = [], busiestNights: [NightSummary] = [], decades: [RankedName] = []) {
         self.period = period
@@ -86,6 +90,8 @@ public struct SingerStats: Codable, Sendable, Hashable {
     public var plays: Int
     public var topSongs: [RankedSong]
     public var recent: [RankedSong]
+    public var year: YearInKaraoke?
+    public var scoreTrend: [RankedName]?
 
     public init(singer: Singer, plays: Int, topSongs: [RankedSong], recent: [RankedSong]) {
         self.singer = singer
@@ -123,5 +129,30 @@ public struct PartyRecap: Codable, Sendable, Hashable {
         self.bestSong = bestSong
         self.topArtist = topArtist
         self.highlights = highlights
+    }
+}
+
+/// A singer's year: what they sang most, their best night and best score.
+public struct YearInKaraoke: Codable, Sendable, Hashable {
+    public var year: Int
+    public var songs: Int
+    public var minutes: Int
+    public var nights: Int
+    public var topSong: String?
+    public var topArtist: String?
+    public var bestScore: Int?
+    public var bestScoreSong: String?
+    public var favoriteDuetPartner: String?
+
+    public init(year: Int, songs: Int, minutes: Int, nights: Int, topSong: String?, topArtist: String?, bestScore: Int?, bestScoreSong: String?, favoriteDuetPartner: String?) {
+        self.year = year
+        self.songs = songs
+        self.minutes = minutes
+        self.nights = nights
+        self.topSong = topSong
+        self.topArtist = topArtist
+        self.bestScore = bestScore
+        self.bestScoreSong = bestScoreSong
+        self.favoriteDuetPartner = favoriteDuetPartner
     }
 }

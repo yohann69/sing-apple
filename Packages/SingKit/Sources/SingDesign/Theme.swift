@@ -54,8 +54,10 @@ public struct SingTheme: Sendable, Equatable {
     public let id: String
     public let preset: SingThemeFile.Preset
     public let file: SingThemeFile
+    /// TV setting overriding the lyric typeface: "rounded", "serif" or "mono".
+    public var fontStyle: String?
 
-    public static func == (a: SingTheme, b: SingTheme) -> Bool { a.id == b.id }
+    public static func == (a: SingTheme, b: SingTheme) -> Bool { a.id == b.id && a.fontStyle == b.fontStyle }
 
     public init(id: String? = nil, file: SingThemeFile = .bundled) {
         let key = id.flatMap { file.presets[$0] != nil ? $0 : nil } ?? file.default
@@ -88,7 +90,13 @@ public struct SingTheme: Sendable, Equatable {
         case "semibold": .semibold
         default: .bold
         }
-        return .system(size: size, weight: weight, design: file.lyrics.design == "rounded" ? .rounded : .default)
+        let design: Font.Design = switch fontStyle ?? file.lyrics.design {
+        case "rounded": .rounded
+        case "serif": .serif
+        case "mono": .monospaced
+        default: .default
+        }
+        return .system(size: size, weight: weight, design: design)
     }
 
     public static var presetIDs: [String] { SingThemeFile.bundled.presets.keys.sorted() }

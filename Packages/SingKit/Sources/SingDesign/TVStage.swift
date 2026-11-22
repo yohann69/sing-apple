@@ -18,6 +18,11 @@ public struct TVStageModel {
     public var result: PerformanceResult?
     public var leaderboard: [RankedName] = []
     public var recap: PartyRecap?
+    public var funFacts: [String] = []
+    /// Only the Mac's own TV window knows it; other screens leave it empty.
+    public var hostCode: String?
+    public var videoURL: URL?
+    public var meters: () -> [Float] = { [] }
     public var live: () -> (points: [LivePitchPoint], score: Int?) = { ([], nil) }
 
     public init(nowPlaying: NowPlaying, lyrics: Lyrics?, upNext: QueueEntry?, settings: TVDisplaySettings, artwork: Image?, joinURL: String, guestCode: String, preparingProgress: Double?, countdownEnd: Date?, duration: TimeInterval, queuePreview: [QueueEntry]) {
@@ -57,8 +62,17 @@ public struct TVStageView: View {
                 content(scale: scale)
                     .padding(.horizontal, 140 * scale)
                     .padding(.vertical, 80 * scale)
+                if model.settings.showHostCode, let code = model.hostCode {
+                    Text("Host code \(code)")
+                        .font(.system(size: 20 * scale, weight: .semibold, design: .monospaced))
+                        .padding(.horizontal, 16 * scale).padding(.vertical, 8 * scale)
+                        .glassEffect(.regular, in: .capsule)
+                        .padding(30 * scale)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                }
             }
             .environment(\.tvScale, scale)
+            .environment(\.singTheme, { var t = theme; t.fontStyle = model.settings.lyricFont == "default" ? nil : model.settings.lyricFont; return t }())
         }
         .foregroundStyle(.white)
         .ignoresSafeArea()
@@ -76,6 +90,12 @@ public struct TVStageView: View {
             }.ignoresSafeArea()
         case .plain:
             theme.background.ignoresSafeArea()
+        case .video:
+            ZStack {
+                theme.background
+                if let url = model.videoURL { LoopingVideo(url: url).opacity(0.75) }
+                Color.black.opacity(0.3)
+            }.ignoresSafeArea()
         }
     }
 
@@ -150,7 +170,7 @@ struct SingingStage: View {
                 Spacer(minLength: 0)
                 if model.settings.showPitchGuide, let track = model.pitch {
                     let live = model.live()
-                    PitchGuideView(track: track, time: t, live: live.points, color: model.nowPlaying.entry?.singers.first?.color ?? theme.accent, score: live.score, showScore: model.settings.showLiveScore, scale: scale)
+                    PitchGuideView(track: track, time: t, live: live.points, color: model.nowPlaying.entry?.singers.first?.color ?? theme.accent, score: live.score, showScore: model.settings.showLiveScore && !model.settings.justForFun, scale: scale)
                         .frame(height: 210 * scale)
                         .padding(.horizontal, -140 * scale)
                         .padding(.bottom, 18 * scale)
@@ -189,6 +209,8 @@ struct SingingStage: View {
                 .lineLimit(1)
             }
             Spacer()
+            let levels = model.meters()
+            if !levels.isEmpty { MicMeters(levels: levels, scale: scale) }
             if model.settings.showUpNext, let next = model.upNext {
                 HStack(spacing: 12 * scale) {
                     if let s = next.singers.first { SingerChip(s, compact: true).scaleEffect(1.6 * scale) }
@@ -269,8 +291,8 @@ struct LyricsColumn: View {
         let focus = focusIndex()
         let size = settings.lyricSize * scale
         let spacing = size * 0.42
-        let before = settings.showPreviousLine ? 2 : 0
-        let after = settings.showNextLine ? 3 : 0
+        let before = settings.showPreviousLine ? max(1, settings.contextLines) + 1 : 0
+        let after = settings.showNextLine ? max(1, settings.contextLines) + 2 : 0
         let range = max(0, focus - before)...min(lines.count - 1, focus + after)
         let focusLine = lines[focus]
         let waiting = time < focusLine.start - 0.2
@@ -424,8 +446,11 @@ struct IdleStage: View {
                     }
                     .font(.system(size: 30 * scale))
                 }
-                if model.settings.showLeaderboard, !model.leaderboard.isEmpty {
+                if model.settings.showLeaderboard, !model.settings.justForFun, !model.leaderboard.isEmpty {
                     LeaderboardPanel(board: model.leaderboard, scale: scale).padding(.top, 20 * scale)
+                }
+                if model.settings.showFunStats, !model.funFacts.isEmpty {
+                    FunFacts(facts: model.funFacts, scale: scale).padding(.top, 16 * scale)
                 }
             }
             Spacer()
@@ -499,7 +524,7 @@ struct CountdownStage: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .bottomTrailing) {
-                if model.settings.showLeaderboard, !model.leaderboard.isEmpty {
+                if model.settings.showLeaderboard, !model.settings.justForFun, !model.leaderboard.isEmpty {
                     LeaderboardPanel(board: Array(model.leaderboard.prefix(3)), scale: scale * 0.8).padding(40 * scale)
                 }
             }
@@ -588,5 +613,44 @@ struct RecapStage: View {
         }
         .frame(width: 260 * scale, height: 200 * scale)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 32 * scale))
+    }
+}
+
+/// One fact about tonight at a time, gently cycling.
+struct FunFacts: View {
+    var facts: [String]
+    var scale: CGFloat
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 6)) { ctx in
+            let i = Int(ctx.date.timeIntervalSinceReferenceDate / 6) % max(1, facts.count)
+            Label(facts[i], systemImage: "sparkles")
+                .font(.system(size: 28 * scale, weight: .semibold))
+                .contentTransition(.opacity)
+                .animation(.easeInOut(duration: 0.6), value: i)
+        }
+    }
+}
+
+/// Small level bars for each mic, shown while someone sings.
+public struct MicMeters: View {
+    var levels: [Float]
+    var scale: CGFloat
+
+    public init(levels: [Float], scale: CGFloat = 1) {
+        self.levels = levels
+        self.scale = scale
+    }
+
+    public var body: some View {
+        HStack(spacing: 6 * scale) {
+            ForEach(Array(levels.enumerated()), id: \.offset) { _, l in
+                Capsule().fill(.white.opacity(0.18)).frame(width: 8 * scale, height: 36 * scale)
+                    .overlay(alignment: .bottom) {
+                        Capsule().fill(l > 0.85 ? Color.red : .white).frame(width: 8 * scale, height: 36 * scale * CGFloat(min(1, max(0.04, l * 1.6))))
+                    }
+            }
+        }
+        .animation(.linear(duration: 0.1), value: levels)
     }
 }

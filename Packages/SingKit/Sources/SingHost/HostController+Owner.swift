@@ -12,6 +12,7 @@ extension HostController {
     public var ownerPINSet: Bool { ownerPINHash != nil }
 
     public func setOwnerPIN(_ pin: String?) {
+        audit("Mac", pin?.isEmpty == false ? "set the owner PIN" : "removed the owner PIN")
         let trimmed = pin?.trimmingCharacters(in: .whitespaces) ?? ""
         if trimmed.isEmpty {
             ownerPINHash = nil
@@ -82,6 +83,7 @@ extension HostController {
 
     /// Unpairs a pad: its token stops working and it is disconnected now.
     public func revokePad(_ id: String) async {
+        audit("Owner", "unpaired a device")
         try? await database.writer.write { db in try db.execute(sql: "UPDATE pad SET revoked = 1 WHERE id = ?", arguments: [id]) }
         await server?.disconnect(padID: id)
         connectedPads = await server?.connectedPads() ?? []
@@ -341,7 +343,9 @@ extension HostController {
 
     /// Settings only the owner may change: services, storage, system and network.
     public func applyOwnerSettings(_ s: SingSettings) {
+        audit("Owner", "changed owner settings")
         var next = settings
+        next.locks = s.locks
         next.services = s.services
         next.storage = s.storage
         next.system = s.system

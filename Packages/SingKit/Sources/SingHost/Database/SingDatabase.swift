@@ -156,6 +156,25 @@ public final class SingDatabase: Sendable {
                 t.add(column: "kept", .boolean).notNull().defaults(to: false)
             }
         }
+        m.registerMigration("v3-profiles") { db in
+            try db.alter(table: "singer") { t in
+                t.add(column: "prefs", .text)
+                t.add(column: "pinHash", .text)
+                t.add(column: "isGuest", .boolean).notNull().defaults(to: false)
+            }
+            try db.create(table: "wish") { t in
+                t.belongsTo("singer", onDelete: .cascade).notNull()
+                t.belongsTo("song", onDelete: .cascade).notNull()
+                t.column("addedAt", .datetime).notNull()
+                t.primaryKey(["singerId", "songId"])
+            }
+            try db.create(table: "auditLog") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("at", .datetime).notNull()
+                t.column("who", .text).notNull()
+                t.column("action", .text).notNull()
+            }
+        }
         return m
     }
 }

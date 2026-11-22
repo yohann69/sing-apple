@@ -14,6 +14,9 @@ struct SettingsPane: View {
     @State private var pickingFolder = false
     @State private var languages: [LanguageOption] = []
     @State private var pin = ""
+    @State private var profiles: [SettingsProfile] = []
+    @State private var profileName = ""
+    @State private var pickingVideo = false
     @State private var exporting = false
     @State private var confirmReset = false
 
@@ -36,6 +39,10 @@ struct SettingsPane: View {
                     Button("Choose…") { pickingFolder = true }
                     if host.watchFolder != nil { Button("Stop watching") { host.watchFolder = nil } }
                 }
+                HStack {
+                    LabeledContent("TV video loop", value: host.tvVideoURL?.lastPathComponent ?? "None")
+                    Button("Choose…") { pickingVideo = true }
+                }
                 Text("Music files saved in this folder are imported automatically. A requested song that arrives is queued for whoever asked for it.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -45,12 +52,26 @@ struct SettingsPane: View {
                     Text("System default").tag(String?.none)
                     ForEach(outputs) { d in Text(d.isHDMI ? "\(d.name) (TV)" : d.name).tag(Optional(d.uid)) }
                 }
+                Picker("Singer's headphones (monitor)", selection: $host.monitorDeviceUID) {
+                    Text("None").tag(String?.none)
+                    ForEach(outputs) { d in Text(d.name).tag(Optional(d.uid)) }
+                }
                 Picker("Microphone", selection: $host.inputDeviceUID) {
                     Text("System default").tag(String?.none)
                     ForEach(inputs) { d in Text(d.name).tag(Optional(d.uid)) }
                 }
             }
+            Section("Quick settings") {
+                HStack {
+                    ForEach(profiles) { p in Button(p.name) { Task { await host.applySettingsProfile(p.name, by: "Mac") } } }
+                    Spacer()
+                    TextField("Save current as…", text: $profileName).frame(width: 160)
+                    Button("Save") { Task { await host.saveSettingsProfile(profileName); profileName = ""; profiles = await host.settingsProfiles() } }.disabled(profileName.isEmpty)
+                }
+            }
             PartySettingsSections(settings: $host.settings)
+            MicSettingsSection(playback: $host.settings.playback, channels: host.micChannels)
+            LocksSection(locks: $host.settings.locks)
             Section("Lyrics sources") {
                 Toggle("Sing lyrics database", isOn: $host.settings.services.singAPIEnabled)
                 TextField("Sing API address", text: $host.settings.services.singAPIBase)
@@ -102,12 +123,16 @@ struct SettingsPane: View {
         .fileImporter(isPresented: $pickingFolder, allowedContentTypes: [.folder]) { r in
             if case .success(let url) = r { host.watchFolder = url }
         }
+        .background(EmptyView().fileImporter(isPresented: $pickingVideo, allowedContentTypes: [.movie]) { r in
+            if case .success(let url) = r { host.tvVideoURL = url; host.settings.tv.background = .video }
+        })
         .navigationTitle("Settings")
         .fileExporter(isPresented: $exporting, document: SQLiteDocument(data: (try? host.exportDatabase()) ?? Data()), contentType: .data, defaultFilename: "Sing backup.sqlite") { _ in }
         .confirmationDialog("Erase history, singers, favorites, recordings, settings and caches?", isPresented: $confirmReset, titleVisibility: .visible) {
             Button("Erase everything", role: .destructive) { Task { await host.factoryReset() } }
         } message: { Text("A last backup is saved first. Music files stay where they are and are processed again.") }
         .task {
+            profiles = await host.settingsProfiles()
             languages = await LyricsTranslator.languages().map { LanguageOption(code: $0.code, name: $0.name) }
             outputs = AudioDevices.outputs
             inputs = AudioDevices.inputs
