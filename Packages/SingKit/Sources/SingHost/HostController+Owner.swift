@@ -12,6 +12,7 @@ extension HostController {
     public var ownerPINSet: Bool { ownerPINHash != nil }
 
     public func setOwnerPIN(_ pin: String?) {
+        audit("Mac", pin?.isEmpty == false ? "set the owner PIN" : "removed the owner PIN")
         let trimmed = pin?.trimmingCharacters(in: .whitespaces) ?? ""
         if trimmed.isEmpty {
             ownerPINHash = nil
@@ -77,11 +78,16 @@ extension HostController {
     public func padList() async -> [PadInfo] {
         let rows = (try? await database.writer.read { try PadRecord.filter(Column("revoked") == false).order(Column("pairedAt").desc).fetchAll($0) }) ?? []
         let live = Set(connectedPads.map(\.padID))
-        return rows.map { PadInfo(id: $0.id, name: $0.name, model: $0.model, role: $0.role, pairedAt: $0.pairedAt, lastSeenAt: $0.lastSeenAt, connected: live.contains($0.id)) }
+        return rows.map { r in
+            var p = PadInfo(id: r.id, name: r.name, model: r.model, role: r.role, pairedAt: r.pairedAt, lastSeenAt: padLastActive[r.id] ?? r.lastSeenAt, connected: live.contains(r.id))
+            p.battery = padBattery[r.id]
+            return p
+        }
     }
 
     /// Unpairs a pad: its token stops working and it is disconnected now.
     public func revokePad(_ id: String) async {
+        audit("Owner", "unpaired a device")
         try? await database.writer.write { db in try db.execute(sql: "UPDATE pad SET revoked = 1 WHERE id = ?", arguments: [id]) }
         await server?.disconnect(padID: id)
         connectedPads = await server?.connectedPads() ?? []
@@ -311,7 +317,7 @@ extension HostController {
     func updateProcessingHold() {
         let sys = settings.system
         let singing = nowPlaying.state == .playing || nowPlaying.state == .countdown
-        var hold = !sys.processLibraryInBackground || (sys.pauseProcessingWhileSinging && singing)
+        var hold = !inMaintenance && (!sys.processLibraryInBackground || (sys.pauseProcessingWhileSinging && singing) || thermalHold)
         if sys.restAfterMinutes > 0 {
             if let start = processingStartedAt, Date.now.timeIntervalSince(start) > sys.restAfterMinutes * 60 {
                 restUntil = .now.addingTimeInterval(10 * 60)
@@ -341,7 +347,9 @@ extension HostController {
 
     /// Settings only the owner may change: services, storage, system and network.
     public func applyOwnerSettings(_ s: SingSettings) {
+        audit("Owner", "changed owner settings")
         var next = settings
+        next.locks = s.locks
         next.services = s.services
         next.storage = s.storage
         next.system = s.system

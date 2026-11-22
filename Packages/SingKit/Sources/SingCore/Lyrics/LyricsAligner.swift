@@ -20,7 +20,7 @@ public enum LyricsAligner {
         public var matchedRatio: Double
     }
 
-    public static func align(_ lyrics: Lyrics, recognized: [TimedWord], duration: TimeInterval) -> Result {
+    public static func align(_ lyrics: Lyrics, recognized: [TimedWord], duration: TimeInterval, language: String? = nil) -> Result {
         let timedLines = lyrics.kind >= .line
         struct Slot { var line: Int; var word: Int; var key: String; var text: String }
         var slots: [Slot] = []
@@ -105,29 +105,39 @@ public enum LyricsAligner {
 
         var lines = lyrics.lines
         var idx = 0
+        var anySyllables = false
         for li in lines.indices {
             let words = lines[li].words
             var segs: [LyricSegment] = []
+            var heard = 0
             for w in words {
-                let total = Double(w.reduce(0) { $0 + max(1, $1.text.count) })
+                // A word given as one piece is split into syllables with the language's hyphenation rules.
+                let pieces: [String] = w.count == 1 ? Hyphenator.syllables(w[0].text, language: language ?? lyrics.language) : w.map(\.text)
+                if pieces.count > 1 { anySyllables = true }
+                let weights = pieces.map { Double(max(1, Hyphenator.vowelWeight($0))) }
+                let total = weights.reduce(0, +)
                 var t = starts[idx]
                 let span = ends[idx] - starts[idx]
-                for (si, s) in w.enumerated() {
-                    let d = span * Double(max(1, s.text.count)) / total
-                    segs.append(LyricSegment(text: s.text, start: t, end: t + d, endsWord: si == w.count - 1))
+                for (si, s) in pieces.enumerated() {
+                    let d = span * weights[si] / total
+                    segs.append(LyricSegment(text: s, start: t, end: t + d, endsWord: si == pieces.count - 1))
                     t += d
                 }
+                if anchor[idx] != nil { heard += 1 }
                 idx += 1
             }
             guard !segs.isEmpty else { continue }
             lines[li].segments = segs
             lines[li].start = segs[0].start
             lines[li].end = segs.last!.end
+            lines[li].confidence = words.isEmpty ? nil : 0.35 + 0.65 * Double(heard) / Double(words.count)
         }
         var out = lyrics
         out.lines = lines
-        out.kind = lyrics.kind >= .word ? lyrics.kind : .word
+        out.kind = anySyllables ? .syllable : (lyrics.kind >= .word ? lyrics.kind : .word)
         out.source = .ai
+        out.model = "apple-speech + sing-aligner/2"
+        out.needsReview = Double(matched) / Double(n) < 0.6 || lines.contains { ($0.confidence ?? 1) < 0.45 && $0.segments.count > 2 }
         return Result(lyrics: out, matchedRatio: Double(matched) / Double(n))
     }
 

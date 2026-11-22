@@ -17,6 +17,9 @@ struct SingMacApp: App {
                 .task { await app.start() }
         }
         .windowToolbarStyle(.unified)
+        MenuBarExtra("Sing!", systemImage: "music.mic") {
+            MenuBarContent().environment(app)
+        }
         .commands {
             CommandMenu("Playback") {
                 Button("Play or Pause") { app.host?.togglePause() }.keyboardShortcut(.space, modifiers: [])
@@ -80,5 +83,31 @@ final class ArtworkCache {
         guard let url = host.artworkFiles[id], let img = NSImage(contentsOf: url) else { return nil }
         images[id] = img
         return Image(nsImage: img)
+    }
+}
+
+/// Quick controls from the menu bar while the main window is hidden.
+struct MenuBarContent: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        if let host = app.host {
+            if let e = host.nowPlaying.entry {
+                Text("\(e.song.title) · \(e.song.artist)")
+                if !e.singers.isEmpty { Text("Sung by \(e.singers.map(\.name).joined(separator: " & "))") }
+            } else {
+                Text("Nothing playing")
+            }
+            Text("\(host.queue.entries.count) in the queue · \(host.connectedPads.count) devices")
+            Divider()
+            Button(host.nowPlaying.state == .playing ? "Pause" : "Play") { host.togglePause() }
+            Button("Next song") { Task { await host.playNext() } }
+            Button("Restart song") { host.restart() }
+            Divider()
+            Button(app.tv.isVisible ? "Hide TV window" : "Show TV window") { app.toggleTV() }
+            Button("Open Sing!") { NSApp.activate(); NSApp.windows.first { $0.title == "Sing!" }?.makeKeyAndOrderFront(nil) }
+        }
+        Divider()
+        Button("Quit Sing!") { NSApp.terminate(nil) }.keyboardShortcut("q")
     }
 }

@@ -11,6 +11,8 @@ public struct SingSettings: Codable, Sendable, Hashable {
     public var system = SystemSettings()
     public var network = NetworkSettings()
     public var privacy = PrivacySettings()
+    /// Who may change each section: "guests", "hosts" (default) or "mac".
+    public var locks: [String: String] = [:]
 
     public init() {}
 
@@ -25,6 +27,7 @@ public struct SingSettings: Codable, Sendable, Hashable {
         system = (try? c.decode(SystemSettings.self, forKey: .system)) ?? SystemSettings()
         network = (try? c.decode(NetworkSettings.self, forKey: .network)) ?? NetworkSettings()
         privacy = (try? c.decode(PrivacySettings.self, forKey: .privacy)) ?? PrivacySettings()
+        locks = (try? c.decode([String: String].self, forKey: .locks)) ?? [:]
     }
 }
 
@@ -51,6 +54,16 @@ public struct TVDisplaySettings: Codable, Sendable, Hashable {
     /// Latin spelling under lyrics in other scripts.
     public var showRomanization = true
     public var showApplause = true
+    /// No numbers anywhere: no live score, no totals, no leaderboard.
+    public var justForFun = false
+    /// "default", "rounded", "serif" or "mono".
+    public var lyricFont = "default"
+    /// Lines shown before and after the one being sung.
+    public var contextLines = 1
+    /// Fun facts about the night on the idle screen.
+    public var showFunStats = true
+    /// Pairing code for host pads in a corner of the TV.
+    public var showHostCode = false
     public var estimatedWordWipe = true
     public var resultSeconds: Double = 10
     public var lyricSize: Double = 96
@@ -82,6 +95,11 @@ public struct TVDisplaySettings: Codable, Sendable, Hashable {
         showLeaderboard = v(.showLeaderboard, d.showLeaderboard)
         showRomanization = v(.showRomanization, d.showRomanization)
         showApplause = v(.showApplause, d.showApplause)
+        justForFun = v(.justForFun, d.justForFun)
+        lyricFont = v(.lyricFont, d.lyricFont)
+        contextLines = v(.contextLines, d.contextLines)
+        showFunStats = v(.showFunStats, d.showFunStats)
+        showHostCode = v(.showHostCode, d.showHostCode)
         estimatedWordWipe = v(.estimatedWordWipe, d.estimatedWordWipe)
         lyricSize = v(.lyricSize, d.lyricSize)
         resultSeconds = max(7, v(.resultSeconds, d.resultSeconds))
@@ -96,6 +114,8 @@ public enum TVBackground: String, Codable, Sendable, CaseIterable {
     case artworkBlobs
     case artwork
     case plain
+    /// A looping video chosen on the Mac.
+    case video
 }
 
 public struct PlaybackSettings: Codable, Sendable, Hashable {
@@ -114,6 +134,17 @@ public struct PlaybackSettings: Codable, Sendable, Hashable {
     public var feedbackProtection = true
     /// Evens out loudness between songs.
     public var normalizeLoudness = true
+    /// Mix each mic input with its own volume.
+    public var separateMics = false
+    public var micChannelGains: [Double] = [1, 1, 1, 1]
+    /// Which input channel each singer slot uses: slot 0 is the first singer of a song.
+    public var micSlots: [Int] = [0, 1, 2, 3]
+    /// Light real-time pitch correction strength, 0 is off.
+    public var pitchCorrection: Double = 0
+    /// Seconds of overlap between songs when the next one is ready, 0 is off.
+    public var crossfadeSeconds: Double = 0
+    /// Measured by the clap test: how late the mic hears what the speakers play, in ms.
+    public var roundTripLatencyMs: Double = 0
     /// "easy", "normal" or "hard": how close to the note still counts.
     public var difficulty = "normal"
     /// Record each performance (music plus voice) for replay and sharing.
@@ -140,6 +171,12 @@ public struct PlaybackSettings: Codable, Sendable, Hashable {
         feedbackProtection = v(.feedbackProtection, d.feedbackProtection)
         normalizeLoudness = v(.normalizeLoudness, d.normalizeLoudness)
         difficulty = v(.difficulty, d.difficulty)
+        roundTripLatencyMs = v(.roundTripLatencyMs, d.roundTripLatencyMs)
+        separateMics = v(.separateMics, d.separateMics)
+        micChannelGains = v(.micChannelGains, d.micChannelGains)
+        micSlots = v(.micSlots, d.micSlots)
+        pitchCorrection = v(.pitchCorrection, d.pitchCorrection)
+        crossfadeSeconds = v(.crossfadeSeconds, d.crossfadeSeconds)
         recordPerformances = v(.recordPerformances, d.recordPerformances)
         keepRecordingsDays = v(.keepRecordingsDays, d.keepRecordingsDays)
     }
@@ -191,10 +228,18 @@ public struct ThemeSettings: Codable, Sendable, Hashable {
 
 public struct ServiceSettings: Codable, Sendable, Hashable {
     public var singAPIBase = "https://lyrics-api-production-b10f.up.railway.app"
-    public var singAPIEnabled = true
+    /// Off by default: Sing! is fully standalone; turn on only with a lyrics server you run.
+    public var singAPIEnabled = false
     public var lrclibEnabled = true
     public var neteaseEnabled = true
     public var kugouEnabled = true
+    public var qqEnabled = true
+    public var musixmatchEnabled = false
+    /// Provider names, first tried first when their timing is equally rich.
+    public var providerOrder = ["Sing", "NetEase", "QQ Music", "Kugou", "Musixmatch", "LRCLIB"]
+    public var uploadAPIBase = "https://upload-api-production.up.railway.app"
+    /// Share AI-synced and hand-fixed lyrics with the Sing lyrics database.
+    public var uploadsEnabled = false
     public var aiAlignmentEnabled = true
     public var catalogSearchEnabled = true
     public var timeoutSeconds: Double = 6
@@ -210,6 +255,11 @@ public struct ServiceSettings: Codable, Sendable, Hashable {
         lrclibEnabled = v(.lrclibEnabled, d.lrclibEnabled)
         neteaseEnabled = v(.neteaseEnabled, d.neteaseEnabled)
         kugouEnabled = v(.kugouEnabled, d.kugouEnabled)
+        qqEnabled = v(.qqEnabled, d.qqEnabled)
+        musixmatchEnabled = v(.musixmatchEnabled, d.musixmatchEnabled)
+        providerOrder = v(.providerOrder, d.providerOrder)
+        uploadAPIBase = v(.uploadAPIBase, d.uploadAPIBase)
+        uploadsEnabled = v(.uploadsEnabled, d.uploadsEnabled)
         aiAlignmentEnabled = v(.aiAlignmentEnabled, d.aiAlignmentEnabled)
         catalogSearchEnabled = v(.catalogSearchEnabled, d.catalogSearchEnabled)
         timeoutSeconds = v(.timeoutSeconds, d.timeoutSeconds)
@@ -246,6 +296,10 @@ public struct SystemSettings: Codable, Sendable, Hashable {
     public var pauseProcessingWhileSinging = true
     /// Pause after this many minutes of continuous processing to let the Mac cool down. 0 means never.
     public var restAfterMinutes: Double = 0
+    /// Hour of the night (0 to 23) for heavy upkeep: processing, checks, cleanup, backup. nil is off.
+    public var maintenanceHour: Int? = 4
+    /// Fill missing year, genre and artwork from MusicBrainz and the Cover Art Archive.
+    public var musicBrainz = true
 
     public init() {}
 
@@ -256,6 +310,8 @@ public struct SystemSettings: Codable, Sendable, Hashable {
         processLibraryInBackground = v(.processLibraryInBackground, d.processLibraryInBackground)
         pauseProcessingWhileSinging = v(.pauseProcessingWhileSinging, d.pauseProcessingWhileSinging)
         restAfterMinutes = v(.restAfterMinutes, d.restAfterMinutes)
+        maintenanceHour = c.contains(.maintenanceHour) ? (try? c.decodeIfPresent(Int.self, forKey: .maintenanceHour)) ?? nil : d.maintenanceHour
+        musicBrainz = v(.musicBrainz, d.musicBrainz)
     }
 }
 

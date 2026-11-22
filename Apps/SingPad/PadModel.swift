@@ -1,3 +1,5 @@
+import ActivityKit
+import AVFoundation
 import Foundation
 import Observation
 import SingClient
@@ -27,13 +29,90 @@ final class PadModel {
     var currentSingerID: SingerID? {
         didSet {
             UserDefaults.standard.set(currentSingerID, forKey: "currentSinger")
-            Task { await loadRatings() }
+            Task { await loadRatings(); await loadWishes() }
         }
     }
     /// The current singer's thumbs, favorites and never-suggest marks, by song.
     var ratings: [SongID: SongRating] = [:]
     /// Granted by the owner PIN; kept in memory only.
     var ownerToken: String?
+    var meters: [Float] = []
+    @ObservationIgnored private var turnActivity: Activity<TurnAttributes>?
+
+    /// Keeps the lock-screen "you're up" activity in step with the queue.
+    func updateTurnActivity() {
+        guard ActivityAuthorizationInfo().areActivitiesEnabled, let me = currentSinger else { return }
+        let nowIsMe = state.nowPlaying.entry?.singers.contains { $0.id == me.id } == true && state.nowPlaying.state != .finished
+        let idx = state.queue.firstIndex { $0.singers.contains { $0.id == me.id } }
+        guard nowIsMe || idx != nil else {
+            if turnActivity != nil {
+                turnActivity = nil
+                Task { for a in Activity<TurnAttributes>.activities { await a.end(nil, dismissalPolicy: .immediate) } }
+            }
+            return
+        }
+        let entry = nowIsMe ? state.nowPlaying.entry! : state.queue[idx!]
+        let content = TurnAttributes.ContentState(songsAway: nowIsMe ? 0 : idx! + 1, songTitle: entry.song.title, artist: entry.song.artist,
+                                                  nowPlaying: nowIsMe ? nil : state.nowPlaying.entry?.song.title)
+        if turnActivity != nil {
+            Task { for a in Activity<TurnAttributes>.activities { await a.update(ActivityContent(state: content, staleDate: nil)) } }
+        } else {
+            turnActivity = try? Activity.request(attributes: TurnAttributes(singerName: me.name, colorHex: me.colorHex), content: ActivityContent(state: content, staleDate: nil))
+        }
+    }
+    @ObservationIgnored let phoneMic = PhoneMicSender()
+    var phoneMicOn = false
+
+    /// Uses this device as a wireless mic through the Mac's speakers.
+    func togglePhoneMic() {
+        if phoneMicOn {
+            phoneMic.stop()
+            phoneMicOn = false
+            Task { try? await client?.stopPhoneMic() }
+            return
+        }
+        Task {
+            guard await AVAudioApplication.requestRecordPermission() else { toast = "Allow the microphone in Settings first"; return }
+            do {
+                guard let client, let host = saved?.endpoint.host else { return }
+                let session = try await client.startPhoneMic()
+                try phoneMic.start(host: host, session: session)
+                phoneMicOn = true
+                toast = "This device is now a mic. Hold it close and away from the speakers."
+            } catch {
+                toast = error.localizedDescription
+            }
+        }
+    }
+    var wishIDs = Set<SongID>()
+    var pinFor: Singer?
+
+    func loadWishes() async {
+        guard let id = currentSingerID, let list = try? await client?.wishes(id) else { wishIDs = []; return }
+        wishIDs = Set(list.map(\.id))
+    }
+
+    func toggleWish(_ song: SongID) {
+        guard let singer = currentSingerID else { toast = "Pick who you are first"; return }
+        let on = !wishIDs.contains(song)
+        if on { wishIDs.insert(song) } else { wishIDs.remove(song) }
+        Task { try? await client?.setWish(singer, song: song, on: on) }
+    }
+
+    /// Picks a profile, asking for its PIN first when it has one.
+    func choose(_ s: Singer) {
+        if s.prefs?.hasPIN == true, !isHost { pinFor = s } else { currentSingerID = s.id }
+    }
+
+    func unlock(_ s: Singer, pin: String) async {
+        do {
+            try await client?.unlockSinger(s.id, pin: pin)
+            currentSingerID = s.id
+            pinFor = nil
+        } catch {
+            toast = error.localizedDescription
+        }
+    }
     var upNextAlert: ServerMessage.YoureUp?
     /// This pad's own translation language for the lyrics shown on it.
     var translationLanguage: String? = UserDefaults.standard.string(forKey: "translationLanguage") {
@@ -166,9 +245,11 @@ final class PadModel {
         switch msg {
         case .hello(let h):
             connection = .connected
+            afterConnect()
             if var s = saved, s.role != h.role { s.role = h.role; saved = s }
         case .state(let s):
             withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) { state = s }
+            updateTurnActivity()
             refreshLyricsIfNeeded()
         case .position(let p):
             state.nowPlaying.positionMs = p.positionMs
@@ -182,6 +263,8 @@ final class PadModel {
             if u.singerID == currentSingerID, u.songsAway <= 2 { upNextAlert = u }
         case .toast(let t):
             toast = t.message
+        case .meter(let m):
+            meters = m.levels
         case .error(let e):
             toast = e.message
             if e.code == "unauthorized" { disconnect() }
@@ -227,6 +310,36 @@ final class PadModel {
     }
 
     var position: TimeInterval {
-        Double(state.nowPlaying.estimatedPosition()) / 1000
+        Double(state.nowPlaying.estimatedPosition(at: Date.now.addingTimeInterval(clockOffset))) / 1000
+    }
+
+    /// How far the Mac's clock is ahead of this device's, measured on each connection.
+    var clockOffset: TimeInterval = 0
+    var updateAvailable: String?
+    @ObservationIgnored private var statusTask: Task<Void, Never>?
+
+    /// Clock sync, update check and a battery report every minute while connected.
+    func afterConnect() {
+        guard let client else { return }
+        Task {
+            let t0 = Date.now
+            if let info = try? await client.info(), let server = info.time {
+                let t1 = Date.now
+                clockOffset = server.timeIntervalSince(t0.addingTimeInterval(t1.timeIntervalSince(t0) / 2))
+                let mine = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+                if info.appVersion.compare(mine, options: .numeric) == .orderedDescending {
+                    updateAvailable = "The Mac runs Sing! \(info.appVersion). Update this app to get the newest features."
+                }
+            }
+        }
+        statusTask?.cancel()
+        statusTask = Task { [weak self] in
+            UIDevice.current.isBatteryMonitoringEnabled = true
+            while !Task.isCancelled {
+                let level = UIDevice.current.batteryLevel
+                self?.send(.deviceStatus(battery: level >= 0 ? Double(level) : nil))
+                try? await Task.sleep(for: .seconds(60))
+            }
+        }
     }
 }

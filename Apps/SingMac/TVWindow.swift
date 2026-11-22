@@ -86,6 +86,10 @@ struct TVRootView: View {
         model.result = host.nowPlaying.state == .finished ? host.lastResult : nil
         model.leaderboard = host.tonightBoard
         model.recap = host.recap
+        model.funFacts = host.funFacts
+        model.hostCode = host.hostCode
+        model.videoURL = host.tvVideoURL
+        model.meters = { [host] in host.nowPlaying.state == .playing ? host.micLevels : [] }
         model.live = { [host] in (host.livePoints, host.liveScore) }
         return model
     }

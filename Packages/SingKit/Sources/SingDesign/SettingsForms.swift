@@ -37,12 +37,20 @@ public struct TVDisplaySettingsSections: View {
                 Text("Lyric size: \(Int(tv.lyricSize))")
                 Slider(value: $tv.lyricSize, in: 56...150, step: 2)
             }
+            Picker("Typeface", selection: $tv.lyricFont) {
+                Text("SF Pro").tag("default")
+                Text("Rounded").tag("rounded")
+                Text("Serif").tag("serif")
+                Text("Monospaced").tag("mono")
+            }
+            Stepper("Lines around the current one: \(tv.contextLines)", value: $tv.contextLines, in: 1...3)
         }
         Section("Background") {
             Picker("Style", selection: $tv.background) {
                 Text("Album color blobs").tag(TVBackground.artworkBlobs)
                 Text("Blurred artwork").tag(TVBackground.artwork)
                 Text("Plain").tag(TVBackground.plain)
+                Text("Video loop (chosen on the Mac)").tag(TVBackground.video)
             }
             VStack(alignment: .leading) {
                 Text("Motion: one drift every \(Int(tv.backgroundSpeed)) s")
@@ -54,8 +62,11 @@ public struct TVDisplaySettingsSections: View {
             Toggle("Up next", isOn: $tv.showUpNext)
             Toggle("Progress line", isOn: $tv.showProgress)
             Toggle("Join QR code when idle", isOn: $tv.showJoinQR)
+            Toggle("Fun facts about tonight when idle", isOn: $tv.showFunStats)
+            Toggle("Host pairing code in a corner", isOn: $tv.showHostCode)
         }
         Section {
+            Toggle("Just for fun: no numbers at all", isOn: $tv.justForFun)
             Toggle("Pitch guide", isOn: $tv.showPitchGuide)
             Toggle("Live score", isOn: $tv.showLiveScore)
             Toggle("Score reveal", isOn: $tv.showScoreReveal)
@@ -97,6 +108,11 @@ public struct PartySettingsSections: View {
             }
             Toggle("Even out loudness between songs", isOn: $settings.playback.normalizeLoudness)
             Toggle("Turn mics down when feedback howls", isOn: $settings.playback.feedbackProtection)
+            Picker("Fade songs in and out", selection: $settings.playback.crossfadeSeconds) {
+                Text("Off").tag(0.0)
+                Text("2 s").tag(2.0)
+                Text("5 s").tag(5.0)
+            }
             VStack(alignment: .leading) {
                 Text("Default guide vocal: \(Int(settings.playback.defaultGuideVocal * 100))%")
                 Slider(value: $settings.playback.defaultGuideVocal, in: 0...1)

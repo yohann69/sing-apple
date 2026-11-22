@@ -49,6 +49,7 @@ struct LibraryPane: View {
                 Divider()
                 Button("Song Settings…") { editing = song }
                 Button("Edit Lyric Timing…") { syncing = song }
+                Button("Lyrics Checked, OK to Share") { Task { await host.markLyricsReviewed(id) } }
                 Button("Find Lyrics Again (providers, then AI timing)") { Task { await host.refreshLyrics(id, force: true) } }
                 Button("Keep Stems (never auto-delete)") { Task { await host.setPinned(id, true) } }
                 Button("Allow Auto-Delete of Stems") { Task { await host.setPinned(id, false) } }

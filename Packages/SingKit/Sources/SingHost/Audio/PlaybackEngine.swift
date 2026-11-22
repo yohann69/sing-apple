@@ -28,15 +28,22 @@ public final class PlaybackEngine {
     public private(set) var duration: TimeInterval = 0
     public var onFinished: (() -> Void)?
 
+    /// A second output (singer's headphones) that plays the same song in step.
+    public var mirror: PlaybackEngine?
+    /// Guide vocal level in the mirror, so the singer can hear the melody without the room hearing it.
+    public var mirrorGuide: Double = 0.5
+
     public var guideVocal: Double = 0 { didSet { vocals.volume = Float(guideVocal) } }
     public var volume: Double = 0.9 { didSet { applyVolume() } }
     /// Per-song gain from loudness analysis, so every song plays at the same level.
     public var normalization: Double = 1 { didSet { applyVolume() } }
     /// Semitones; the voice guide and music move together.
-    public var keyShift: Int = 0 { didSet { timePitch.pitch = Float(keyShift * 100) } }
-    public var tempo: Double = 1 { didSet { timePitch.rate = Float(max(0.5, min(1.5, tempo))) } }
+    public var keyShift: Int = 0 { didSet { timePitch.pitch = Float(keyShift * 100); mirror?.keyShift = keyShift } }
+    public var tempo: Double = 1 { didSet { timePitch.rate = Float(max(0.5, min(1.5, tempo))); mirror?.tempo = tempo } }
 
-    private func applyVolume() { stemMixer.outputVolume = Float(volume * normalization) }
+    /// Fade-in and fade-out envelope at the song's edges.
+    public var fade: Double = 1 { didSet { if abs(fade - oldValue) > 0.005 { applyVolume() } } }
+    private func applyVolume() { stemMixer.outputVolume = Float(volume * normalization * fade) }
 
     private var recorder: TapRecorder?
 
@@ -60,7 +67,14 @@ public final class PlaybackEngine {
         recorder = nil
     }
 
+    /// Called when the output device changes or disappears (HDMI unplugged).
+    public var onConfigurationChange: (() -> Void)?
+    nonisolated(unsafe) private var configObserver: NSObjectProtocol?
+
     public init() {
+        configObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.onConfigurationChange?() }
+        }
         engine.attach(instrumental)
         engine.attach(vocals)
         engine.attach(stemMixer)
@@ -87,6 +101,7 @@ public final class PlaybackEngine {
 
     public func load(instrumental instURL: URL, vocals vocURL: URL?) throws {
         stop()
+        if let m = mirror { try? m.load(instrumental: instURL, vocals: vocURL); m.guideVocal = mirrorGuide }
         let inst = try AVAudioFile(forReading: instURL)
         let voc = try vocURL.map { try AVAudioFile(forReading: $0) }
         instrumentalFile = inst
@@ -106,6 +121,22 @@ public final class PlaybackEngine {
         engine.prepare()
     }
 
+    /// After a device change the engine stops; restart it on whatever output is there now and carry on.
+    public func recoverOutput() {
+        let wasPlaying = isPlaying
+        let at = position
+        isPlaying = false
+        generation += 1
+        if let dev = AudioDevices.device(uid: outputUID), let unit = engine.outputNode.audioUnit {
+            AudioDevices.assign(dev.id, to: unit)
+        } else {
+            outputUID = nil
+        }
+        engine.prepare()
+        try? engine.start()
+        if wasPlaying { try? play(from: at) } else { startFrame = AVAudioFramePosition(at * sampleRate) }
+    }
+
     public var position: TimeInterval {
         guard let nodeTime = instrumental.lastRenderTime, isPlaying,
               let playerTime = instrumental.playerTime(forNodeTime: nodeTime) else {
@@ -118,6 +149,7 @@ public final class PlaybackEngine {
         guard let inst = instrumentalFile else { return }
         if let time { startFrame = AVAudioFramePosition(max(0, min(time, duration)) * sampleRate) }
         if !engine.isRunning { try engine.start() }
+        try? mirror?.play(from: Double(startFrame) / sampleRate)
         instrumental.stop()
         vocals.stop()
         generation += 1
@@ -150,6 +182,7 @@ public final class PlaybackEngine {
 
     public func pause() {
         guard isPlaying else { return }
+        mirror?.pause()
         startFrame = AVAudioFramePosition(position * sampleRate)
         isPlaying = false
         generation += 1
@@ -161,11 +194,13 @@ public final class PlaybackEngine {
         if isPlaying {
             try play(from: time)
         } else {
+            try? mirror?.seek(to: time)
             startFrame = AVAudioFramePosition(max(0, min(time, duration)) * sampleRate)
         }
     }
 
     public func stop() {
+        mirror?.stop()
         isPlaying = false
         generation += 1
         instrumental.stop()
@@ -220,6 +255,16 @@ public final class MicEngine {
         componentType: kAudioUnitType_Effect, componentSubType: kAudioUnitSubType_PeakLimiter,
         componentManufacturer: kAudioUnitManufacturer_Apple, componentFlags: 0, componentFlagsMask: 0))
     private let eq = AVAudioUnitEQ(numberOfBands: 3)
+    private let tuner = AVAudioUnitTimePitch()
+    /// 0 disables the tuner so it adds no latency.
+    public var correctionStrength: Double = 0 {
+        didSet {
+            tuner.bypass = correctionStrength <= 0
+            if correctionStrength <= 0 { tuner.pitch = 0 }
+            if (correctionStrength > 0) != (oldValue > 0), isRunning { stop(); try? start() }
+        }
+    }
+    public var correctionCents: Float = 0 { didSet { tuner.pitch = max(-150, min(150, correctionCents)) } }
     private let inputMixer = AVAudioMixerNode()
     private var aggregate: AudioDeviceID?
     private var configured = false
@@ -254,6 +299,22 @@ public final class MicEngine {
     public private(set) var deviceName: String?
     private let meter = LevelMeter()
     public let livePitch = LivePitch()
+    /// One pitch tracker and meter per input channel (up to four mics on one interface).
+    public let channelPitch = (0..<4).map { _ in LivePitch() }
+    let channelMeters = (0..<4).map { _ in LevelMeter() }
+    public private(set) var channelCount = 1
+    /// When the engine last (re)started, so a silent first moment is not mistaken for blocked access.
+    public private(set) var startedAt: Date?
+    public var channelLevels: [Float] { channelMeters.prefix(channelCount).map(\.value) }
+    /// Per-mic volume, used when the mics are mixed separately.
+    public let mixGains = MixGains()
+    /// Mix each channel with its own volume (adds about 40 ms of latency).
+    public var separateMics = false { didSet { if separateMics != oldValue, isRunning { stop(); try? start() } } }
+    private var splitSource: AVAudioSourceNode?
+    /// Wireless mics from phones, mixed in with the wired ones.
+    let phones = PhoneMicReceiver()
+    private var phoneSource: AVAudioSourceNode?
+    private let ring = MonoRing()
     private var inputUID: String?
     private var outputUID: String?
 
@@ -341,20 +402,53 @@ public final class MicEngine {
         guard format.channelCount > 0, format.sampleRate > 0 else { throw SeparationError.badAudio("no microphone") }
         let input = engine.inputNode
         let mixer = engine.mainMixerNode
-        let tapBlock = Self.tap(meter, pitch: livePitch, sampleRate: format.sampleRate)
+        channelCount = max(1, min(4, Int(format.channelCount)))
+        // A pitch shifter cannot sit downstream of the live input, so pitch correction takes the same
+        // tap-and-replay path as separate mic volumes (about 40 ms more latency).
+        let split = (separateMics && format.channelCount > 1) || correctionStrength > 0
+        let tapBlock = Self.tap(meter, pitch: livePitch, channels: Array(zip(channelMeters, channelPitch)), sampleRate: format.sampleRate, ring: split ? ring : nil, gains: mixGains)
+        let mono = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: 1)!
+        if split, splitSource == nil {
+            splitSource = AVAudioSourceNode(format: mono, renderBlock: Self.render(ring))
+        }
+        let source = split ? splitSource : nil
+        let phoneFormat = AVAudioFormat(standardFormatWithSampleRate: PhoneMicReceiver.sampleRate, channels: 1)!
+        if phoneSource == nil { phoneSource = AVAudioSourceNode(format: phoneFormat, renderBlock: Self.render(phones.ring)) }
+        let phoneNode = phoneSource
+        if let p = phoneNode, p.engine == nil { engine.attach(p) }
+        let useTuner = split
         let eq = self.eq, reverb = self.reverb, engine = self.engine, inMixer = self.inputMixer, attach = !configured
-        let delay = self.delay, limiter = self.limiter
+        let delay = self.delay, limiter = self.limiter, tuner = self.tuner
+        tuner.bypass = correctionStrength <= 0
         let stereo = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: 2)!
         try objc {
             if attach {
                 engine.attach(inMixer)
                 engine.attach(eq)
+                engine.attach(tuner)
                 engine.attach(delay)
                 engine.attach(reverb)
                 engine.attach(limiter)
             }
-            engine.connect(input, to: inMixer, format: format)
-            engine.connect(inMixer, to: eq, format: stereo)
+            if let source {
+                if source.engine == nil { engine.attach(source) }
+                engine.disconnectNodeOutput(input)
+                engine.connect(source, to: inMixer, format: mono)
+            } else {
+                if let s = self.splitSource, s.engine != nil { engine.disconnectNodeOutput(s) }
+                engine.connect(input, to: inMixer, format: format)
+            }
+            if let ps = phoneNode {
+                engine.disconnectNodeOutput(ps)
+                engine.connect(ps, to: inMixer, format: phoneFormat)
+            }
+            if useTuner {
+                engine.connect(inMixer, to: tuner, format: stereo)
+                engine.connect(tuner, to: eq, format: stereo)
+            } else {
+                engine.disconnectNodeOutput(tuner)
+                engine.connect(inMixer, to: eq, format: stereo)
+            }
             engine.connect(eq, to: delay, format: stereo)
             engine.connect(delay, to: reverb, format: stereo)
             engine.connect(reverb, to: limiter, format: stereo)
@@ -364,7 +458,7 @@ public final class MicEngine {
         }
         configured = true
         applyGain()
-        engine.prepare()
+        try objc { engine.prepare() }
         do {
             try engine.start()
         } catch {
@@ -373,6 +467,7 @@ public final class MicEngine {
             throw error
         }
         isRunning = true
+        startedAt = .now
     }
 
     public func stop() {
@@ -386,13 +481,83 @@ public final class MicEngine {
         aggregate = nil
     }
 
-    nonisolated static func tap(_ meter: LevelMeter, pitch: LivePitch, sampleRate: Double) -> AVAudioNodeTapBlock {
+    nonisolated static func tap(_ meter: LevelMeter, pitch: LivePitch, channels: [(LevelMeter, LivePitch)], sampleRate: Double, ring: MonoRing?, gains: MixGains) -> AVAudioNodeTapBlock {
         { @Sendable buf, _ in
-            guard let ch = buf.floatChannelData?[0] else { return }
-            var peak: Float = 0
-            for i in 0..<Int(buf.frameLength) { peak = max(peak, abs(ch[i])) }
-            meter.value = peak
-            pitch.process(ch, count: Int(buf.frameLength), sampleRate: sampleRate)
+            guard let data = buf.floatChannelData else { return }
+            let n = Int(buf.frameLength)
+            let count = min(channels.count, Int(buf.format.channelCount))
+            var loudest: Float = 0
+            var loudestChannel = 0
+            for c in 0..<count {
+                let ch = data[c]
+                var peak: Float = 0
+                for i in 0..<n { peak = max(peak, abs(ch[i])) }
+                channels[c].0.value = peak
+                if count > 1 { channels[c].1.process(ch, count: n, sampleRate: sampleRate) }
+                if peak > loudest { loudest = peak; loudestChannel = c }
+            }
+            meter.value = loudest
+            pitch.process(data[loudestChannel], count: n, sampleRate: sampleRate)
+            if let ring {
+                let g = gains.values
+                var mixed = [Float](repeating: 0, count: n)
+                for c in 0..<count {
+                    let ch = data[c], k = c < g.count ? g[c] : 1
+                    for i in 0..<n { mixed[i] += ch[i] * k }
+                }
+                ring.write(mixed)
+            }
+        }
+    }
+
+    nonisolated static func render(_ ring: MonoRing) -> AVAudioSourceNodeRenderBlock {
+        { _, _, frames, list -> OSStatus in
+            let abl = UnsafeMutableAudioBufferListPointer(list)
+            guard let out = abl.first?.mData?.assumingMemoryBound(to: Float.self) else { return noErr }
+            ring.read(into: out, count: Int(frames))
+            return noErr
+        }
+    }
+}
+
+public final class MixGains: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _values: [Float] = [1, 1, 1, 1]
+    public var values: [Float] {
+        get { lock.withLock { _values } }
+        set { lock.withLock { _values = newValue } }
+    }
+}
+
+/// Hands the mixed mics from the input tap to the playback graph, with a small cushion.
+final class MonoRing: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buf = [Float](repeating: 0, count: 1 << 15)
+    private var readPos = 0
+    private var available = 0
+    private let cushion = 1536
+
+    func write(_ s: [Float]) {
+        lock.withLock {
+            for x in s {
+                buf[(readPos + available) % buf.count] = x
+                if available < buf.count { available += 1 } else { readPos = (readPos + 1) % buf.count }
+            }
+            if available > cushion * 3 {
+                let drop = available - cushion
+                readPos = (readPos + drop) % buf.count
+                available -= drop
+            }
+        }
+    }
+
+    func read(into out: UnsafeMutablePointer<Float>, count: Int) {
+        lock.withLock {
+            let n = min(count, available)
+            for i in 0..<n { out[i] = buf[(readPos + i) % buf.count] }
+            for i in n..<count { out[i] = 0 }
+            readPos = (readPos + n) % buf.count
+            available -= n
         }
     }
 }

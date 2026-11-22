@@ -1,0 +1,22 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift tests (song files are not in the repo, so tests that need them are skipped)
+        working-directory: Packages/SingKit
+        run: swift test --parallel
+      - name: Generate the Xcode project
+        run: brew install xcodegen && xcodegen
+      - name: Build the Mac app
+        run: xcodebuild -project Sing.xcodeproj -scheme SingMac -configuration Debug CODE_SIGNING_ALLOWED=NO build | tail -20
+      - name: Build the iPad and iPhone app
+        run: xcodebuild -project Sing.xcodeproj -scheme SingPad -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build | tail -20
+      - name: Build the Apple TV app
+        run: xcodebuild -project Sing.xcodeproj -scheme SingTV -configuration Debug -destination 'generic/platform=tvOS Simulator' CODE_SIGNING_ALLOWED=NO build | tail -20

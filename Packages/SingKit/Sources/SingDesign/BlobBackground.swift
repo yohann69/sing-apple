@@ -22,9 +22,11 @@ public struct BlobBackground: View {
         (0.50, 0.45, 0.50, 1.4, 0.6, 2.2),
     ]
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     public var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate / period * 2 * .pi
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { context in
+            let t = reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate / period * 2 * .pi
             GeometryReader { geo in
                 let size = geo.size
                 let unit = max(size.width, size.height)
@@ -50,6 +52,7 @@ public struct BlobBackground: View {
         .animation(.easeInOut(duration: 1.6), value: colors)
         .drawingGroup()
         .ignoresSafeArea()
+        .accessibilityHidden(true)
     }
 }
 

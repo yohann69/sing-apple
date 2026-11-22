@@ -47,7 +47,7 @@ extension HostController {
             try? FileManager.default.removeItem(at: t.dir)
             return
         }
-        let delay = playback.outputLatency + mic.inputLatency
+        let delay = settings.playback.roundTripLatencyMs > 0 ? settings.playback.roundTripLatencyMs / 1000 : playback.outputLatency + mic.inputLatency
         let out = paths.recordings.appendingPathComponent("\(UUID().uuidString).m4a")
         let token = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(16).lowercased()
         Task {

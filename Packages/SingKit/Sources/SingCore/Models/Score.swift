@@ -65,6 +65,13 @@ public struct ScoreKeeper: Sendable {
 
     public var voicedCount: Int { frames.filter { $0.midi != nil }.count }
 
+    /// The middle 80% of the notes actually sung, as a comfortable range.
+    public var sungRange: (low: Double, high: Double)? {
+        let m = frames.compactMap(\.midi).sorted()
+        guard m.count >= 60 else { return nil }
+        return (Double(m[m.count / 10]), Double(m[m.count * 9 / 10]))
+    }
+
     /// `tolerance` is how far off pitch still counts as a hit, in semitones; `during` limits scoring to some moments (a duet part).
     public func result(track: PitchTrack?, upTo end: TimeInterval, tolerance: Float = 1, during: ((Double) -> Bool)? = nil) -> (total: Int, categories: [ScoreCategory])? {
         let frames = during.map { f in self.frames.filter { f($0.time) } } ?? self.frames

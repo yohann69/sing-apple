@@ -60,6 +60,9 @@ public struct Singer: Codable, Sendable, Hashable, Identifiable {
     public var name: String
     public var emoji: String?
     public var colorHex: String
+    public var prefs: SingerPrefs?
+    /// Made on the fly by a guest; the host can merge it into a real profile later.
+    public var isGuest: Bool?
 
     public init(id: SingerID, name: String, emoji: String? = nil, colorHex: String) {
         self.id = id

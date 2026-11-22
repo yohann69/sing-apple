@@ -127,7 +127,7 @@ public struct StorageDashboard: View {
                         }
                         Spacer()
                         Text(Self.size(s.bytes)).monospacedDigit().foregroundStyle(.secondary)
-                        Button { onClear(ClearCacheRequest(songID: s.id)) } label: { Image(systemName: "trash") }
+                        Button { onClear(ClearCacheRequest(songID: s.id)) } label: { Image(systemName: "trash") }.accessibilityLabel("Clear this song's cache")
                             .buttonStyle(.borderless).disabled(s.bytes == 0)
                     }
                 }

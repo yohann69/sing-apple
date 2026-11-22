@@ -115,6 +115,7 @@ public struct PadInfo: Codable, Sendable, Hashable, Identifiable {
     public var pairedAt: Date
     public var lastSeenAt: Date?
     public var connected: Bool
+    public var battery: Double?
 
     public init(id: String, name: String, model: String?, role: PadRole, pairedAt: Date, lastSeenAt: Date?, connected: Bool) {
         self.id = id
@@ -125,6 +126,14 @@ public struct PadInfo: Codable, Sendable, Hashable, Identifiable {
         self.lastSeenAt = lastSeenAt
         self.connected = connected
     }
+}
+
+public struct ModelInfo: Codable, Sendable, Hashable, Identifiable {
+    public var id: String { name }
+    public var name: String
+    public var task: String
+    public var bytes: Int64
+    public init(name: String, task: String, bytes: Int64) { self.name = name; self.task = task; self.bytes = bytes }
 }
 
 public struct OwnerUnlock: Codable, Sendable {

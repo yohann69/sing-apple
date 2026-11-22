@@ -14,6 +14,15 @@ struct SettingsPane: View {
     @State private var pickingFolder = false
     @State private var languages: [LanguageOption] = []
     @State private var pin = ""
+    @State private var profiles: [SettingsProfile] = []
+    @State private var profileName = ""
+    @State private var pickingVideo = false
+    @State private var pickingRelink = false
+    @State private var pickingCache = false
+    @State private var clapping = false
+    @State private var toolStatus: String?
+    @State private var duplicates: [[SongSummary]] = []
+    @State private var modelsTick = 0
     @State private var exporting = false
     @State private var confirmReset = false
 
@@ -36,6 +45,10 @@ struct SettingsPane: View {
                     Button("Choose…") { pickingFolder = true }
                     if host.watchFolder != nil { Button("Stop watching") { host.watchFolder = nil } }
                 }
+                HStack {
+                    LabeledContent("TV video loop", value: host.tvVideoURL?.lastPathComponent ?? "None")
+                    Button("Choose…") { pickingVideo = true }
+                }
                 Text("Music files saved in this folder are imported automatically. A requested song that arrives is queued for whoever asked for it.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -45,20 +58,49 @@ struct SettingsPane: View {
                     Text("System default").tag(String?.none)
                     ForEach(outputs) { d in Text(d.isHDMI ? "\(d.name) (TV)" : d.name).tag(Optional(d.uid)) }
                 }
+                Picker("Singer's headphones (monitor)", selection: $host.monitorDeviceUID) {
+                    Text("None").tag(String?.none)
+                    ForEach(outputs) { d in Text(d.name).tag(Optional(d.uid)) }
+                }
                 Picker("Microphone", selection: $host.inputDeviceUID) {
                     Text("System default").tag(String?.none)
                     ForEach(inputs) { d in Text(d.name).tag(Optional(d.uid)) }
                 }
             }
+            Section("Quick settings") {
+                HStack {
+                    ForEach(profiles) { p in Button(p.name) { Task { await host.applySettingsProfile(p.name, by: "Mac") } } }
+                    Spacer()
+                    TextField("Save current as…", text: $profileName).frame(width: 160)
+                    Button("Save") { Task { await host.saveSettingsProfile(profileName); profileName = ""; profiles = await host.settingsProfiles() } }.disabled(profileName.isEmpty)
+                }
+            }
             PartySettingsSections(settings: $host.settings)
+            MicSettingsSection(playback: $host.settings.playback, channels: host.micChannels)
+            LocksSection(locks: $host.settings.locks)
             Section("Lyrics sources") {
                 Toggle("Sing lyrics database", isOn: $host.settings.services.singAPIEnabled)
                 TextField("Sing API address", text: $host.settings.services.singAPIBase)
                 Toggle("NetEase (word synced)", isOn: $host.settings.services.neteaseEnabled)
                 Toggle("Kugou (word synced)", isOn: $host.settings.services.kugouEnabled)
+                Toggle("QQ Music (line synced)", isOn: $host.settings.services.qqEnabled)
+                Toggle("Musixmatch (word synced when available)", isOn: $host.settings.services.musixmatchEnabled)
                 Toggle("LRCLIB (line synced)", isOn: $host.settings.services.lrclibEnabled)
                 Toggle("Word timing with on-device AI when only line timing exists", isOn: $host.settings.services.aiAlignmentEnabled)
                 Toggle("Search Apple Music and Deezer catalogs from the pads", isOn: $host.settings.services.catalogSearchEnabled)
+                VStack(alignment: .leading) {
+                    Text("Order when two sources are equally precise")
+                    List {
+                        ForEach(host.settings.services.providerOrder, id: \.self) { Text($0) }
+                            .onMove { host.settings.services.providerOrder.move(fromOffsets: $0, toOffset: $1) }
+                    }
+                    .frame(height: 150)
+                }
+                Stepper("Give up on a source after \(Int(host.settings.services.timeoutSeconds)) s", value: $host.settings.services.timeoutSeconds, in: 2...20)
+                Toggle("Share AI-synced and fixed lyrics with the Sing database", isOn: $host.settings.services.uploadsEnabled)
+                TextField("Upload API address", text: $host.settings.services.uploadAPIBase)
+                if host.pendingUploads > 0 { LabeledContent("Waiting to upload", value: "\(host.pendingUploads)") }
+                Button("Reset these to the defaults") { host.settings.services = ServiceSettings() }
                 HStack {
                     Button("Test connection") { testAPI() }
                     if let apiStatus { Text(apiStatus).foregroundStyle(.secondary) }
@@ -89,6 +131,54 @@ struct SettingsPane: View {
             } header: { Text("Backups") } footer: {
                 Text("A copy of the history, singers, favorites and settings is made every day; the last seven are kept. Erasing keeps your music files.")
             }
+            Section {
+                LabeledContent("Room latency (clap test)", value: host.settings.playback.roundTripLatencyMs > 0 ? "\(Int(host.settings.playback.roundTripLatencyMs)) ms" : "Not measured")
+                HStack {
+                    Button(clapping ? "Clap with each click…" : "Run the clap test") {
+                        clapping = true
+                        Task {
+                            do { toolStatus = "Measured \(Int(try await host.clapTest())) ms" } catch { toolStatus = error.localizedDescription }
+                            clapping = false
+                        }
+                    }.disabled(clapping)
+                    if let toolStatus { Text(toolStatus).foregroundStyle(.secondary) }
+                }
+                Picker("Nightly upkeep", selection: $host.settings.system.maintenanceHour) {
+                    Text("Off").tag(Int?.none)
+                    ForEach([1, 2, 3, 4, 5, 6], id: \.self) { Text("\($0):00").tag(Optional($0)) }
+                }
+                Toggle("Fill missing year, genre and artwork from MusicBrainz", isOn: $host.settings.system.musicBrainz)
+                HStack {
+                    Button("Check caches now") { Task { let n = await host.integrityCheck(); toolStatus = n == 0 ? "Every cache is fine" : "Rebuilding \(n) song(s)" } }
+                    Button("Find moved music…") { pickingRelink = true }
+                    Button("Find duplicates") { Task { duplicates = await host.findDuplicates(); toolStatus = duplicates.isEmpty ? "No duplicates" : "\(duplicates.count) group(s) found" } }
+                    Button("Fill metadata now") { Task { await host.enrichMetadata(limit: 100); toolStatus = "Metadata updated" } }
+                }
+                ForEach(Array(duplicates.enumerated()), id: \.offset) { _, g in
+                    Text(g.map { "\($0.title) (\($0.artist))" }.joined(separator: "  ≈  ")).font(.callout)
+                }
+                HStack {
+                    LabeledContent("Song caches", value: host.cacheLocation.path)
+                    Button("Move…") { pickingCache = true }
+                }
+                Button("Show logs") { NSWorkspace.shared.open(HostController.logsFolder) }
+            } header: { Text("Upkeep and tools") } footer: {
+                Text("The nightly upkeep processes the library, checks and cleans the caches, and backs up while nobody sings. Moving the caches takes effect after Sing! restarts.")
+            }
+            Section("AI models") {
+                ForEach(host.installedModels()) { m in
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(m.name)
+                            Text("\(m.task) · \(ByteCountFormatter.string(fromByteCount: m.bytes, countStyle: .file))").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Remove", role: .destructive) { host.removeModel(m.name); modelsTick += 1 }
+                    }
+                }
+                Button("Reinstall the models shipped with Sing!") { host.reinstallBundledModels(); modelsTick += 1 }
+            }
+            .id(modelsTick)
             Section("Vocal separation") {
                 LabeledContent("Model", value: host.modelAvailable ? "HTDemucs (Core ML)" : "Not installed")
                 if !host.modelAvailable {
@@ -102,12 +192,22 @@ struct SettingsPane: View {
         .fileImporter(isPresented: $pickingFolder, allowedContentTypes: [.folder]) { r in
             if case .success(let url) = r { host.watchFolder = url }
         }
+        .background(EmptyView().fileImporter(isPresented: $pickingRelink, allowedContentTypes: [.folder]) { r in
+            if case .success(let url) = r { Task { let n = await host.relink(folder: url); toolStatus = "Found \(n) moved song(s)" } }
+        })
+        .background(EmptyView().fileImporter(isPresented: $pickingCache, allowedContentTypes: [.folder]) { r in
+            if case .success(let url) = r { Task { do { try await host.moveCache(to: url); toolStatus = "Caches moved; restart Sing! to use them" } catch { toolStatus = error.localizedDescription } } }
+        })
+        .background(EmptyView().fileImporter(isPresented: $pickingVideo, allowedContentTypes: [.movie]) { r in
+            if case .success(let url) = r { host.tvVideoURL = url; host.settings.tv.background = .video }
+        })
         .navigationTitle("Settings")
         .fileExporter(isPresented: $exporting, document: SQLiteDocument(data: (try? host.exportDatabase()) ?? Data()), contentType: .data, defaultFilename: "Sing backup.sqlite") { _ in }
         .confirmationDialog("Erase history, singers, favorites, recordings, settings and caches?", isPresented: $confirmReset, titleVisibility: .visible) {
             Button("Erase everything", role: .destructive) { Task { await host.factoryReset() } }
         } message: { Text("A last backup is saved first. Music files stay where they are and are processed again.") }
         .task {
+            profiles = await host.settingsProfiles()
             languages = await LyricsTranslator.languages().map { LanguageOption(code: $0.code, name: $0.name) }
             outputs = AudioDevices.outputs
             inputs = AudioDevices.inputs

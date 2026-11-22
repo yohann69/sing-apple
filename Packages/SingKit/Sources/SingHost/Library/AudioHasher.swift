@@ -71,16 +71,20 @@ public enum PaletteExtractor {
 
 public struct SingPaths: Sendable {
     public let root: URL
+    /// Song caches on another disk, chosen in Settings, Storage.
+    public var cacheOverride: URL?
 
     public init(root: URL) { self.root = root }
 
     public static var `default`: SingPaths {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return SingPaths(root: base.appendingPathComponent("Sing", isDirectory: true))
+        var p = SingPaths(root: base.appendingPathComponent("Sing", isDirectory: true))
+        p.cacheOverride = UserDefaults.standard.url(forKey: "cacheRoot")
+        return p
     }
 
     public var database: URL { root.appendingPathComponent("sing.sqlite") }
-    public var cache: URL { root.appendingPathComponent("Cache", isDirectory: true) }
+    public var cache: URL { cacheOverride ?? root.appendingPathComponent("Cache", isDirectory: true) }
     public var models: URL { root.appendingPathComponent("Models", isDirectory: true) }
     public var recordings: URL { root.appendingPathComponent("Recordings", isDirectory: true) }
 

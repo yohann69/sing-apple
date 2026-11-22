@@ -112,16 +112,20 @@ public final class LyricsService: Sendable {
     func fetchBest(_ song: SongRecord) async -> Lyrics? {
         var candidates: [(Lyrics, Int)] = []
         let local = localCandidates(song)
-        candidates += local.map { ($0, 3) }
+        candidates += local.map { ($0, 200) }
         let best = candidates.max { $0.0.kind < $1.0.kind }
         if best?.0.kind ?? .plain < .word {
             let s = services()
             let query = LyricsQuery(title: song.title, artist: Self.primaryArtist(song.artist), album: song.album, durationMs: song.durationMs, isrc: song.isrc)
-            var providers: [(any LyricsProvider, Int)] = []
-            if s.singAPIEnabled, let base = URL(string: s.singAPIBase) { providers.append((SingLyricsAPI(base: base, timeout: s.timeoutSeconds), 4)) }
-            if s.neteaseEnabled { providers.append((NetEaseProvider(timeout: s.timeoutSeconds), 3)) }
-            if s.kugouEnabled { providers.append((KugouProvider(timeout: s.timeoutSeconds), 2)) }
-            if s.lrclibEnabled { providers.append((LRCLibProvider(timeout: s.timeoutSeconds), 1)) }
+            var all: [(String, any LyricsProvider)] = []
+            if s.singAPIEnabled, let base = URL(string: s.singAPIBase) { all.append(("Sing", SingLyricsAPI(base: base, timeout: s.timeoutSeconds))) }
+            if s.neteaseEnabled { all.append(("NetEase", NetEaseProvider(timeout: s.timeoutSeconds))) }
+            if s.qqEnabled { all.append(("QQ Music", QQMusicProvider(timeout: s.timeoutSeconds))) }
+            if s.kugouEnabled { all.append(("Kugou", KugouProvider(timeout: s.timeoutSeconds))) }
+            if s.musixmatchEnabled { all.append(("Musixmatch", MusixmatchProvider(timeout: s.timeoutSeconds))) }
+            if s.lrclibEnabled { all.append(("LRCLIB", LRCLibProvider(timeout: s.timeoutSeconds))) }
+            let order = s.providerOrder
+            let providers: [(any LyricsProvider, Int)] = all.map { name, p in (p, 100 - (order.firstIndex(of: name) ?? 50)) }
             let reference = local.first { $0.kind >= .line }
             await withTaskGroup(of: (Lyrics, Int)?.self) { group in
                 for (p, rank) in providers {
@@ -130,7 +134,12 @@ public final class LyricsService: Sendable {
                         return (reference.map { Self.matchTiming(l, to: $0) } ?? l, rank)
                     }
                 }
-                for await r in group { if let r { candidates.append(r) } }
+                // Word timing from any source is good enough to start singing; stop waiting for slower ones.
+                for await r in group {
+                    guard let r else { continue }
+                    candidates.append(r)
+                    if r.0.kind >= .word { group.cancelAll(); break }
+                }
             }
         }
         return candidates.max(by: { ($0.0.kind, $0.1) < ($1.0.kind, $1.1) })?.0

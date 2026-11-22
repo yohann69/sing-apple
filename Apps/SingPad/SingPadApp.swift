@@ -34,6 +34,12 @@ struct PadRoot: View {
         }
         .animation(.spring(response: 0.6, dampingFraction: 0.85), value: model.saved == nil)
         .overlay(alignment: .top) { ToastView() }
+        .overlay(alignment: .bottom) {
+            if let u = model.updateAvailable {
+                Text(u).font(.callout).padding(12).glassEffect(.regular.tint(.orange.opacity(0.3)), in: .capsule).padding(.bottom, 90)
+                    .onTapGesture { model.updateAvailable = nil }
+            }
+        }
         .task {
             if model.saved != nil { model.connect() }
         }

@@ -154,14 +154,14 @@ struct ProviderNetworkTests {
             TimedWord(text: "we", start: 20.2, end: 20.4), TimedWord(text: "sing", start: 20.5, end: 21.0), TimedWord(text: "night", start: 21.8, end: 22.5),
         ]
         let r = LyricsAligner.align(lyrics, recognized: rec, duration: 30)
-        #expect(r.lyrics.kind == .word)
+        #expect(r.lyrics.kind >= .word)
         #expect(r.lyrics.source == .ai)
-        let w0 = r.lyrics.lines[0].segments
+        let w0 = r.lyrics.lines[0].words.map { $0[0] }
         #expect(w0[0].start == 10.4)
         #expect(w0[1].start == 10.9)
         #expect(w0[2].start >= 11.3 && w0[2].start < 12.0)
         #expect(w0[3].start == 12.0)
-        let w1 = r.lyrics.lines[1].segments
+        let w1 = r.lyrics.lines[1].words.map { LyricSegment(text: "", start: $0[0].start, end: $0.last!.end, endsWord: true) }
         #expect(w1[2].start >= 21.0 && w1[2].end <= 21.8 + 0.001)
         #expect(r.matchedRatio > 0.6)
         for l in r.lyrics.lines { for (a, b) in zip(l.segments, l.segments.dropFirst()) { #expect(a.start <= b.start) } }
@@ -204,5 +204,35 @@ struct ProviderNetworkTests {
         #expect(s.notes[0].start == 0 && s.notes[0].end == 0.9)
         #expect(s.notes[0].midi == 61)
         #expect(s.notes[1].midi == 66)
+    }
+}
+
+struct NewFormatTests {
+    @Test func ttmlWriterRoundTrips() throws {
+        let segs = [LyricSegment(text: "Hel", start: 1, end: 1.3, endsWord: false), LyricSegment(text: "lo ", start: 1.3, end: 1.6, endsWord: true), LyricSegment(text: "world", start: 1.7, end: 2.2, endsWord: true)]
+        var line = LyricLine(id: 0, start: 1, end: 2.2, agent: "v1", segments: segs)
+        line.translation = "Bonjour le monde"
+        let l = Lyrics(kind: .syllable, source: .ai, language: "en", agents: [Agent(id: "v1", name: "Léa")], lines: [line, LyricLine(id: 1, start: 3, end: 4, agent: "v1", segments: [LyricSegment(text: "again", start: 3, end: 4, endsWord: true)])])
+        let back = try TTMLParser.parse(TTMLWriter.write(l, title: "T", artist: "A"))
+        #expect(back.kind == .syllable)
+        #expect(back.lines.count == 2)
+        #expect(back.lines[0].text.trimmingCharacters(in: .whitespaces) == "Hello world")
+        #expect(abs(back.lines[0].segments[1].start - 1.3) < 0.01)
+        #expect(back.lines[0].translation == "Bonjour le monde")
+        #expect(back.agents.first?.name == "Léa")
+    }
+
+    @Test func parsesQRCAndRichsync() {
+        let qrc = "[1000,2000]Hel(1000,300)lo (1300,300)world(1700,500)\n[4000,1000]a(4000,200)b(4200,200)\n[6000,1000]c(6000,500)\n"
+        let q = WordSyncedParser.parseQRC(qrc, source: .qq)
+        #expect(q?.lines.count == 3)
+        #expect(q?.lines[0].segments.count == 3)
+        let rs = #"[{"ts":1.0,"te":2.0,"x":"hi you","l":[{"c":"h","o":0},{"c":"i","o":0.1},{"c":" ","o":0.3},{"c":"you","o":0.4}]}]"#
+        let m = WordSyncedParser.parseMusixmatchRichsync(rs)
+        #expect(m?.lines.first?.segments.map { $0.text.trimmingCharacters(in: .whitespaces) } == ["hi", "you"])
+    }
+
+    @Test func hyphenatesFrench() {
+        #expect(Hyphenator.syllables("magnifique", language: "fr").count >= 3)
     }
 }

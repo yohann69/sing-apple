@@ -49,11 +49,37 @@ public protocol HostAPI: AnyObject, Sendable {
     func humSearch(_ audio: Data) async throws -> [SongSummary]
     func reelFile(token: String) async -> URL?
     func displayPitch(songID: SongID) async -> PitchTrack?
+    func createSinger(name: String, emoji: String?, guest: Bool, pad: PadIdentity) async throws -> Singer
+    func updateSingerPrefs(_ id: SingerID, _ p: SingerPrefs, pad: PadIdentity?) async throws
+    func renameSinger(_ id: SingerID, name: String, emoji: String?, colorHex: String?) async
+    func setSingerPIN(_ id: SingerID, pin: String?, pad: PadIdentity?) async throws
+    func verifySingerPIN(_ id: SingerID, pin: String, pad: PadIdentity) async throws
+    func mergeSingers(from: SingerID, into: SingerID, by who: String) async throws
+    func deleteSinger(_ id: SingerID, by who: String) async
+    func smartKey(songID: SongID, singerID: SingerID) async -> SmartKey?
+    func wishes(_ singerID: SingerID) async -> [SongSummary]
+    func setWish(_ singerID: SingerID, songID: SongID, on: Bool, pad: PadIdentity?) async throws
+    func queueWish(_ singerID: SingerID, pad: PadIdentity) async throws -> SongSummary?
+    func settingsProfiles() async -> [SettingsProfile]
+    func saveSettingsProfile(_ name: String) async
+    func applySettingsProfile(_ name: String, by who: String) async
+    func auditLog(limit: Int) async -> [AuditEntry]
+    func ask(_ sentence: String) async throws -> SearchResponse
+    func duetSuggestions(_ a: SingerID, _ b: SingerID) async throws -> [Suggestion]
+    func reportBadLyrics(_ id: SongID, by who: String) async
+    func modelList() async -> [ModelInfo]
+    func removeModel(_ name: String) async
+    func reinstallBundledModels() async
+    func integrityCheck() async -> Int
+    func searchLines(_ q: String) async -> SearchResponse
+    func startPhoneMic(pad: PadIdentity) async throws -> PhoneMicSession
+    func stopPhoneMic(pad: PadIdentity) async
 }
 
 public struct NewSinger: Codable, Sendable {
     public var name: String
     public var emoji: String?
+    public var guest: Bool?
 
     public init(name: String, emoji: String?) {
         self.name = name
@@ -257,7 +283,45 @@ public final class SingServer: Sendable {
                 return json(await api.singers())
             case ("POST", ["singers"]):
                 let body = try SingProtocol.decoder().decode(NewSinger.self, from: req.body)
-                return json(try await api.createSinger(name: body.name, emoji: body.emoji, pad: pad))
+                return json(try await api.createSinger(name: body.name, emoji: body.emoji, guest: body.guest ?? false, pad: pad))
+            case (_, let p) where p.count >= 3 && p[0] == "singers":
+                guard let id = Int64(p[1]) else { return error(400, "badRequest", "Bad singer id") }
+                return try await singerRoute(req, id, Array(p.dropFirst(2)), pad: pad, api: api)
+            case ("POST", ["singers", "merge"]):
+                guard pad.role == .host else { return error(403, "rejected", "Only the host can do that.") }
+                let m = try SingProtocol.decoder().decode(MergeSingers.self, from: req.body)
+                try await api.mergeSingers(from: m.from, into: m.into, by: pad.name)
+                return json(["ok": true])
+            case ("DELETE", let p) where p.count == 2 && p[0] == "singers":
+                guard pad.role == .host, let id = Int64(p[1]) else { return error(403, "rejected", "Only the host can do that.") }
+                await api.deleteSinger(id, by: pad.name)
+                return json(["ok": true])
+            case ("POST", let p) where p.count == 4 && p[0] == "songs" && p[2] == "lyrics" && p[3] == "report":
+                guard let id = Int64(p[1]) else { return error(400, "badRequest", "Bad song id") }
+                await api.reportBadLyrics(id, by: pad.name)
+                return json(["ok": true])
+            case ("POST", ["mic", "phone"]):
+                return json(try await api.startPhoneMic(pad: pad))
+            case ("DELETE", ["mic", "phone"]):
+                await api.stopPhoneMic(pad: pad)
+                return json(["ok": true])
+            case ("GET", ["lines"]):
+                return json(await api.searchLines(req.query["q"] ?? ""))
+            case ("GET", ["ask"]):
+                return json(try await api.ask(req.query["q"] ?? ""))
+            case ("GET", ["suggestions", "duet"]):
+                guard let a = req.query["a"].flatMap({ Int64($0) }), let b = req.query["b"].flatMap({ Int64($0) }) else { return error(400, "badRequest", "a and b are required") }
+                return json(try await api.duetSuggestions(a, b))
+            case ("GET", let p) where p.count == 3 && p[0] == "songs" && p[2] == "smartkey":
+                guard let id = Int64(p[1]), let s = req.query["singer"].flatMap({ Int64($0) }), let k = await api.smartKey(songID: id, singerID: s) else { return error(404, "notFound", "Not enough singing to know this range yet") }
+                return json(k)
+            case ("GET", ["settings", "profiles"]):
+                return json(await api.settingsProfiles())
+            case ("POST", let p) where p.count == 4 && p[0] == "settings" && p[1] == "profiles":
+                guard pad.role == .host else { return error(403, "rejected", "Only the host can do that.") }
+                let name = p[2].removingPercentEncoding ?? p[2]
+                if p[3] == "apply" { await api.applySettingsProfile(name, by: pad.name) } else { await api.saveSettingsProfile(name) }
+                return json(["ok": true])
             case ("GET", let p) where p.first == "stats" && !statsAllowed:
                 return error(403, "notAllowed", "The host keeps stats private tonight.")
             case ("GET", let p) where p.count == 3 && p[0] == "songs" && p[2] == "settings":
@@ -329,10 +393,48 @@ public final class SingServer: Sendable {
 }
 
 extension SingServer {
+    static func singerRoute(_ req: HTTPRequest, _ id: SingerID, _ p: [String], pad: PadIdentity, api: any HostAPI) async throws -> HTTPResponse {
+        let dec = SingProtocol.decoder()
+        switch (req.method, p) {
+        case ("PUT", ["prefs"]):
+            try await api.updateSingerPrefs(id, try dec.decode(SingerPrefs.self, from: req.body), pad: pad)
+        case ("PUT", ["profile"]):
+            guard pad.role == .host else { return error(403, "rejected", "Only the host can do that.") }
+            let s = try dec.decode(Singer.self, from: req.body)
+            await api.renameSinger(id, name: s.name, emoji: s.emoji, colorHex: s.colorHex)
+        case ("POST", ["pin"]):
+            try await api.setSingerPIN(id, pin: try dec.decode(SingerPINRequest.self, from: req.body).pin, pad: pad)
+        case ("POST", ["unlock"]):
+            try await api.verifySingerPIN(id, pin: try dec.decode(SingerPINRequest.self, from: req.body).pin ?? "", pad: pad)
+        case ("GET", ["wishes"]):
+            return json(await api.wishes(id))
+        case ("POST", ["wishes", "next"]):
+            return json(SearchResponse(songs: try await api.queueWish(id, pad: pad).map { [$0] } ?? [], total: 0))
+        case (let m, let q) where q.count == 2 && q[0] == "wishes" && (m == "PUT" || m == "DELETE"):
+            guard let song = Int64(q[1]) else { return error(400, "badRequest", "Bad song id") }
+            try await api.setWish(id, songID: song, on: m == "PUT", pad: pad)
+        default:
+            return error(404, "notFound", "Unknown path")
+        }
+        return json(["ok": true])
+    }
+
     static func ownerRoute(_ req: HTTPRequest, _ p: [String], api: any HostAPI) async throws -> HTTPResponse {
         switch (req.method, p) {
         case ("GET", []):
             return json(await api.ownerOverview())
+        case ("GET", ["models"]):
+            return json(await api.modelList())
+        case ("DELETE", let q) where q.count == 2 && q[0] == "models":
+            await api.removeModel(q[1])
+            return json(["ok": true])
+        case ("POST", ["models", "reinstall"]):
+            await api.reinstallBundledModels()
+            return json(["ok": true])
+        case ("POST", ["check"]):
+            return json(["rebuilding": await api.integrityCheck()])
+        case ("GET", ["audit"]):
+            return json(await api.auditLog(limit: 300))
         case ("GET", ["backup"]):
             return HTTPResponse(contentType: "application/vnd.sqlite3", body: try await api.exportDatabase(),
                                 extraHeaders: ["Content-Disposition": "attachment; filename=\"sing-backup.sqlite\""])

@@ -72,6 +72,7 @@ struct SingersPane: View {
     var host: HostController
     @State private var name = ""
     @State private var stats: [SingerID: SingerStats] = [:]
+    @State private var editing: Singer?
 
     var body: some View {
         ScrollView {
@@ -87,6 +88,11 @@ struct SingersPane: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(16)
                     .glassEffect(.regular.tint(s.color.opacity(0.15)), in: RoundedRectangle(cornerRadius: 20))
+                    .overlay(alignment: .topTrailing) {
+                        if s.isGuest == true { Text("Guest").font(.caption.bold()).padding(6).glassEffect(.regular, in: .capsule).padding(8) }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { editing = s }
                     .task { stats[s.id] = try? await host.singerStats(s.id) }
                 }
             }
@@ -104,6 +110,7 @@ struct SingersPane: View {
             }
         }
         .navigationTitle("Singers")
+        .sheet(item: $editing) { SingerSheet(host: host, singer: $0, year: stats[$0.id]?.year) }
     }
 
     private func add() {
@@ -205,6 +212,7 @@ struct RankCard: View {
 struct PadsPane: View {
     var host: HostController
     @State private var pads: [PadInfo] = []
+    @State private var audit: [AuditEntry] = []
 
     var body: some View {
         ScrollView {
@@ -216,6 +224,7 @@ struct PadsPane: View {
                     }
                 }
                 Form {
+                    AuditLogSection(entries: audit)
                     PadListSection(pads: pads) { p in Task { await host.revokePad(p.id); pads = await host.padList() } }
                     Section {
                         Text("Address: \(host.hostJoinURL.replacingOccurrences(of: "sing://", with: "").components(separatedBy: "?").first ?? "")").font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
@@ -224,12 +233,12 @@ struct PadsPane: View {
                 }
                 .formStyle(.grouped)
                 .scrollDisabled(true)
-                .frame(minHeight: CGFloat(160 + max(1, pads.count) * 52))
+                .frame(minHeight: CGFloat(220 + max(1, pads.count) * 52 + min(60, audit.count) * 44))
             }
             .padding(24)
         }
         .navigationTitle("Pads")
-        .task(id: host.connectedPads.map(\.padID)) { pads = await host.padList() }
+        .task(id: host.connectedPads.map(\.padID)) { pads = await host.padList(); audit = await host.auditLog() }
     }
 
     private func codeCard(title: String, subtitle: String, code: String, url: String, @ViewBuilder extra: () -> some View = { EmptyView() }) -> some View {
@@ -285,5 +294,65 @@ struct StoragePane: View {
         } message: {
             Text(preview.map { "\($0.songs) songs are affected. They are processed again when queued." } ?? "")
         }
+    }
+}
+
+struct SingerSheet: View {
+    var host: HostController
+    var singer: Singer
+    var year: YearInKaraoke?
+    @Environment(\.dismiss) private var dismiss
+    @State private var prefs = SingerPrefs()
+    @State private var name = ""
+    @State private var emoji = ""
+    @State private var pin = ""
+    @State private var mergeInto: SingerID?
+    @State private var confirmDelete = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let year { Section { YearRecapCard(year: year) } }
+                Section("Profile") {
+                    TextField("Name", text: $name)
+                    TextField("Emoji", text: $emoji)
+                }
+                SingerPrefsForm(prefs: $prefs)
+                Section {
+                    SecureField(prefs.hasPIN ? "PIN set, type a new one" : "No PIN", text: $pin)
+                    HStack {
+                        Button(prefs.hasPIN ? "Change PIN" : "Set PIN") { Task { try? await host.setSingerPIN(singer.id, pin: pin, pad: nil); pin = ""; dismiss() } }.disabled(pin.count < 4)
+                        if prefs.hasPIN { Button("Remove PIN", role: .destructive) { Task { try? await host.setSingerPIN(singer.id, pin: nil, pad: nil); dismiss() } } }
+                    }
+                } header: { Text("Profile PIN") } footer: { Text("With a PIN, other guests cannot queue or change settings as this singer.") }
+                Section {
+                    Picker("Same person as", selection: $mergeInto) {
+                        Text("Choose…").tag(SingerID?.none)
+                        ForEach(host.singers.filter { $0.id != singer.id }) { Text($0.name).tag(Optional($0.id)) }
+                    }
+                    Button("Merge into that profile") { if let m = mergeInto { Task { try? await host.mergeSingers(from: singer.id, into: m, by: "Mac"); dismiss() } } }.disabled(mergeInto == nil)
+                    Button("Delete this singer", role: .destructive) { confirmDelete = true }
+                } header: { Text("Merge or delete") } footer: { Text("Merging moves every song, score and favorite to the other profile.") }
+            }
+            .formStyle(.grouped)
+            .navigationTitle(singer.name)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        Task {
+                            await host.renameSinger(singer.id, name: name, emoji: emoji.isEmpty ? nil : emoji, colorHex: nil)
+                            try? await host.updateSingerPrefs(singer.id, prefs, pad: nil)
+                            dismiss()
+                        }
+                    }
+                }
+            }
+            .confirmationDialog("Delete \(singer.name)? Their history stays in the totals but loses the name.", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("Delete", role: .destructive) { Task { await host.deleteSinger(singer.id, by: "Mac"); dismiss() } }
+            }
+        }
+        .frame(minWidth: 480, minHeight: 620)
+        .onAppear { prefs = singer.prefs ?? SingerPrefs(); name = singer.name; emoji = singer.emoji ?? "" }
     }
 }

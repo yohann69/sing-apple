@@ -67,6 +67,9 @@ public struct SingerRecord: Codable, Sendable, FetchableRecord, MutablePersistab
     public var colorHex: String
     public var createdAt: Date = .now
     public var createdByPad: String?
+    public var prefs: String?
+    public var pinHash: String?
+    public var isGuest = false
 
     public init(name: String, emoji: String?, colorHex: String, createdByPad: String?) {
         self.name = name
@@ -77,7 +80,14 @@ public struct SingerRecord: Codable, Sendable, FetchableRecord, MutablePersistab
 
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 
-    public var singer: Singer { Singer(id: id ?? 0, name: name, emoji: emoji, colorHex: colorHex) }
+    public var singer: Singer {
+        var s = Singer(id: id ?? 0, name: name, emoji: emoji, colorHex: colorHex)
+        var p = prefs.flatMap { try? JSONDecoder().decode(SingerPrefs.self, from: Data($0.utf8)) } ?? SingerPrefs()
+        p.hasPIN = pinHash != nil
+        s.prefs = p
+        s.isGuest = isGuest ? true : nil
+        return s
+    }
 }
 
 public struct SessionRecord: Codable, Sendable, FetchableRecord, MutablePersistableRecord, TableRecord {
