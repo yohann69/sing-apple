@@ -205,6 +205,7 @@ public final class HostController: HostAPI {
         await loadOwnerPIN()
         await loadEvicted()
         await loadSongPrefs()
+        await recolorSingers()
         removeStaleTakes()
         await loadUploads()
         if !UserDefaults.standard.bool(forKey: "standalone-v1") {

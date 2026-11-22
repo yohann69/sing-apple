@@ -176,3 +176,25 @@ extension Lyrics {
         return copy
     }
 }
+
+/// Colors for the voices of a song with several singers: no pink or blue.
+public enum VoicePalette {
+    public static let hex = ["#FFB547", "#7BE07B", "#B28DFF", "#FF7A4D", "#FFE45C", "#C6F06B", "#E89A5B", "#9FD8A8"]
+}
+
+extension Lyrics {
+    /// Singer voices in order of first appearance, groups (everyone together) left out.
+    public var voices: [String] {
+        let groups = Set(agents.filter(\.isGroup).map(\.id))
+        var seen: [String] = []
+        for l in lines { if let a = l.agent, !groups.contains(a), !seen.contains(a) { seen.append(a) } }
+        return seen
+    }
+
+    /// Which voice sings this line when the song has two or more; nil for one voice or for everyone together.
+    public func voiceIndex(of line: LyricLine) -> Int? {
+        let v = voices
+        guard v.count >= 2, let a = line.agent else { return nil }
+        return v.firstIndex(of: a)
+    }
+}

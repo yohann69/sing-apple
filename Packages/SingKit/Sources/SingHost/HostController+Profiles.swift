@@ -127,6 +127,21 @@ extension HostController {
         }
     }
 
+    /// Older profiles could get pink or blue; give them colors from the current palette.
+    func recolorSingers() async {
+        let old: Set<String> = ["#4CC9F0", "#FF6B9A", "#5EEAD4", "#F472B6"]
+        let records = (try? await database.writer.read { try SingerRecord.fetchAll($0) }) ?? []
+        var changed = false
+        for (i, r) in records.enumerated() where old.contains(r.colorHex.uppercased()) {
+            var rec = r
+            rec.colorHex = Singer.palette[i % Singer.palette.count]
+            let out = rec
+            try? await database.writer.write { db in try out.update(db) }
+            changed = true
+        }
+        if changed { await reloadSingers() }
+    }
+
     // MARK: Smart key
 
     /// Moves the song's melody into the singer's comfortable range, by the smallest step.

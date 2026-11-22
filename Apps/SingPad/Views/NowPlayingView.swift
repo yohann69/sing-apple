@@ -82,7 +82,10 @@ struct LyricsCard: View {
                 if let lyrics = model.lyrics, lyrics.kind != .plain {
                     let i = lyrics.lineIndex(at: t + 0.15) ?? -1
                     if i >= 0 {
-                        KaraokeLineView(segments: lyrics.lines[i].segments, time: t, font: theme.lyricFont(size: 26), wordSpacing: 7, wipe: lyrics.kind >= .word || model.state.settings.tv.estimatedWordWipe)
+                        let voice = model.state.settings.tv.showSingerNames ? lyrics.voiceIndex(of: lyrics.lines[i]).map { Color(hex: VoicePalette.hex[$0 % VoicePalette.hex.count]) } : nil
+                        KaraokeLineView(segments: lyrics.lines[i].segments, time: t, font: theme.lyricFont(size: 26), wordSpacing: 7,
+                                        sung: voice ?? .white, dim: (voice ?? .white).opacity(0.45), glow: voice ?? .white,
+                                        wipe: lyrics.kind >= .word || model.state.settings.tv.estimatedWordWipe)
                             .id(i)
                             .transition(.push(from: .bottom))
                     } else {

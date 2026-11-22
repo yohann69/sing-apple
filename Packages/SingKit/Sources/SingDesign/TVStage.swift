@@ -266,9 +266,15 @@ struct LyricsColumn: View {
         return lyrics.agents.contains { $0.id == agent && $0.isGroup }
     }
 
+    /// Voices alternate sides: first on the left, second on the right, and so on.
     private func alignment(_ line: LyricLine) -> HorizontalAlignment {
-        guard lyrics.isDuet, let a = line.agent, !isGroup(a) else { return .leading }
-        return agentOrder.firstIndex(of: a) == 1 ? .trailing : .leading
+        guard let i = lyrics.voiceIndex(of: line) else { return .leading }
+        return i % 2 == 1 ? .trailing : .leading
+    }
+
+    private func voiceColor(_ line: LyricLine) -> Color? {
+        guard settings.showSingerNames else { return nil }
+        return lyrics.voiceIndex(of: line).map { Color(hex: VoicePalette.hex[$0 % VoicePalette.hex.count]) }
     }
 
     private func singer(for line: LyricLine) -> Singer? {
@@ -349,32 +355,21 @@ struct LyricsColumn: View {
         return y
     }
 
-    @ViewBuilder private func label(_ line: LyricLine, size: CGFloat) -> some View {
-        if settings.showSingerNames, lyrics.isDuet || singers.count > 1 {
-            if let s = singer(for: line) {
-                HStack(spacing: 12 * scale) {
-                    Circle().fill(s.color).frame(width: 14 * scale, height: 14 * scale)
-                    Text(s.name)
-                }
-                .font(.system(size: max(18, size * 0.26), weight: .bold))
-            } else if isGroup(line.agent) {
-                Text(singers.map(\.name).joined(separator: " & ")).font(.system(size: max(18, size * 0.26), weight: .bold))
-            }
-        }
-    }
-
     private func lineView(_ line: LyricLine, isFocus: Bool, distance: Int, size: CGFloat) -> some View {
         let align = alignment(line)
-        let color = lyrics.isDuet ? (singer(for: line)?.color ?? .white) : (singers.first?.color ?? .white)
+        // One voice: white text. Several voices: each voice keeps its own color, sung or not.
+        let voice = voiceColor(line)
+        let color = voice ?? .white
+        let sung = voice ?? .white
+        let dim = voice.map { $0.opacity(isFocus ? 0.45 : 0.9) } ?? .white.opacity(isFocus ? 0.32 : 1)
         let wipe = lyrics.kind >= .word || settings.estimatedWordWipe
         let t = distance < 0 ? max(time, line.end + 1) : (distance > 0 ? min(time, line.start - 1) : time)
         return VStack(alignment: align, spacing: 10 * scale) {
-            label(line, size: size)
             KaraokeLineView(segments: line.segments, time: t, font: theme.lyricFont(size: size), wordSpacing: size * 0.26,
-                            sung: .white, dim: .white.opacity(isFocus ? 0.32 : 1), glow: color.mix(with: .white, by: 0.35), alignment: align, wipe: wipe && isFocus)
+                            sung: sung, dim: dim, glow: color.mix(with: .white, by: 0.35), alignment: align, wipe: wipe && isFocus)
             if settings.showBackingVocals, !line.background.isEmpty {
                 KaraokeLineView(segments: line.background, time: t, font: theme.lyricFont(size: size * 0.42).italic(), wordSpacing: size * 0.1,
-                                sung: .white.opacity(0.9), dim: .white.opacity(isFocus ? 0.28 : 0.8), glow: color, alignment: align, wipe: wipe && isFocus)
+                                sung: sung.opacity(0.9), dim: (voice ?? .white).opacity(isFocus ? 0.28 : 0.8), glow: color, alignment: align, wipe: wipe && isFocus)
             }
             if settings.showRomanization, let ro = line.romanization {
                 Text(ro).font(.system(size: size * 0.36, weight: .medium)).opacity(isFocus ? 0.75 : 0.5)

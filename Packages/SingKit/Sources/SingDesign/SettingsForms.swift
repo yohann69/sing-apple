@@ -23,7 +23,7 @@ public struct TVDisplaySettingsSections: View {
             Toggle("Previous line", isOn: $tv.showPreviousLine)
             Toggle("Next line", isOn: $tv.showNextLine)
             Toggle("Backing vocals", isOn: $tv.showBackingVocals)
-            Toggle("Singer names", isOn: $tv.showSingerNames)
+            Toggle("One color per singer in duets", isOn: $tv.showSingerNames)
             Toggle("Translation line (on-device AI)", isOn: $tv.showTranslation)
             if tv.showTranslation {
                 Picker("Translate the TV into", selection: Binding(get: { tv.translationLanguage ?? "" }, set: { tv.translationLanguage = $0.isEmpty ? nil : $0 })) {

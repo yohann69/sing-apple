@@ -71,7 +71,7 @@ public struct Singer: Codable, Sendable, Hashable, Identifiable {
         self.colorHex = colorHex
     }
 
-    public static let palette = ["#FF8A3D", "#4CC9F0", "#FFC145", "#7BE07B", "#B28DFF", "#FF6B9A", "#5EEAD4", "#F472B6"]
+    public static let palette = ["#FF8A3D", "#7BE07B", "#FFC145", "#B28DFF", "#FF5E3A", "#C6F06B", "#E8D44D", "#C08A5E"]
 }
 
 public struct QueueEntry: Codable, Sendable, Hashable, Identifiable {
