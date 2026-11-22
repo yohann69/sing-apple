@@ -81,6 +81,7 @@ struct SnapshotTests {
         try render("tv-preparing", model, time: 0)
         model.nowPlaying.state = .playing
         model.lyrics = solo
-        try render("tv-gap", model, time: 8.5)
+        try render("tv-gap", model, time: 4)
+        try render("tv-gap-end", model, time: 9.2)
     }
 }

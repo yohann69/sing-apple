@@ -198,3 +198,17 @@ extension Lyrics {
         return v.firstIndex(of: a)
     }
 }
+
+extension Lyrics {
+    /// During a pause of several seconds (intro, instrumental), how far through it we are, from 0 to 1; nil while singing
+    /// or within 1.4 s of the next line, when that line should be on screen to read ahead.
+    public func breakProgress(at t: TimeInterval) -> Double? {
+        guard let next = lines.firstIndex(where: { $0.start > t }) else { return nil }
+        let prevEnd = next > 0 ? lines[next - 1].end : 0
+        guard lines[next].start - prevEnd >= 4.5 else { return nil }
+        let start = next > 0 ? prevEnd + 0.6 : 0
+        let resume = lines[next].start - 1.4
+        guard t >= start, t < resume else { return nil }
+        return (t - start) / max(0.5, resume - start)
+    }
+}

@@ -304,7 +304,12 @@ struct LyricsColumn: View {
         let waiting = time < focusLine.start - 0.2
         let gap = focusLine.start - time
         let prevEnd = focus > 0 ? lines[focus - 1].end : 0
-        let showDots = settings.showCountdown && waiting && gap < 4 && (focusLine.start - prevEnd > 5 || focus == 0)
+        // A real pause (instrumental, intro): hide every line and show breathing dots until shortly before singing resumes.
+        let breakStart = focus > 0 ? prevEnd + 0.6 : 0
+        let resumeAt = focusLine.start - 1.4
+        let inBreak = waiting && focusLine.start - prevEnd >= 4.5 && time >= breakStart && time < resumeAt
+        let breakProgress = inBreak ? (time - breakStart) / max(0.5, resumeAt - breakStart) : 0
+        let showDots = settings.showCountdown && inBreak
 
         GeometryReader { geo in
             let anchor = geo.size.height * 0.36
@@ -319,17 +324,19 @@ struct LyricsColumn: View {
                             if abs((heights[i] ?? 0) - h) > 0.5 { heights[i] = h }
                         }
                         .offset(y: y)
-                        .opacity(opacity(d, waiting: waiting))
+                        .opacity(inBreak ? 0 : opacity(d, waiting: waiting))
                         .blur(radius: (d == 0 && !waiting) ? 0 : min(7, CGFloat(abs(d)) * 2.2 + (waiting && d == 0 ? 0.8 : 0)) * scale)
                         .scaleEffect(d == 0 && !waiting ? 1 : 0.97, anchor: alignment(line) == .trailing ? .trailing : .leading)
                         .animation(.spring(response: 0.85, dampingFraction: 0.86).delay(Double(max(0, d)) * 0.045), value: focus)
                         .animation(.easeInOut(duration: 0.5), value: waiting)
+                        .animation(.easeInOut(duration: 0.7), value: inBreak)
                         .transition(.opacity.combined(with: .offset(y: d > 0 ? 60 * scale : -60 * scale)))
                 }
                 if showDots {
-                    CountdownDots(remaining: gap, scale: scale)
-                        .offset(y: anchor - 60 * scale)
-                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    CountdownDots(progress: breakProgress, scale: scale)
+                        .frame(width: geo.size.width, alignment: Alignment(horizontal: alignment(focusLine), vertical: .center))
+                        .offset(y: anchor + size * 0.2)
+                        .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .leading)))
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
@@ -381,21 +388,27 @@ struct LyricsColumn: View {
     }
 }
 
+/// Three dots that breathe and fill one after another across a pause, like Apple Music.
 struct CountdownDots: View {
-    var remaining: TimeInterval
+    /// 0 at the start of the pause, 1 when singing resumes.
+    var progress: Double
     var scale: CGFloat
 
     var body: some View {
-        HStack(spacing: 22 * scale) {
-            ForEach(0..<3) { i in
-                let lit = remaining > Double(i) * 1.2
-                Circle()
-                    .fill(.white)
-                    .frame(width: 26 * scale, height: 26 * scale)
-                    .opacity(lit ? 0.95 : 0.18)
-                    .scaleEffect(lit ? 1 : 0.7)
-                    .animation(.spring(response: 0.4, dampingFraction: 0.6), value: lit)
+        TimelineView(.animation) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            let breathe = 1 + 0.08 * sin(t * 2 * .pi / 2.4)
+            HStack(spacing: 26 * scale) {
+                ForEach(0..<3) { i in
+                    let fill = max(0, min(1, progress * 3 - Double(i)))
+                    Circle()
+                        .fill(.white.opacity(0.22 + 0.73 * fill))
+                        .frame(width: 30 * scale, height: 30 * scale)
+                        .scaleEffect((0.82 + 0.18 * fill) * breathe)
+                        .shadow(color: .white.opacity(0.5 * fill), radius: 12 * scale * fill)
+                }
             }
+            .scaleEffect(progress > 0.97 ? 1 + (progress - 0.97) * 4 : 1)
         }
     }
 }

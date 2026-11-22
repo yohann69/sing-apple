@@ -79,7 +79,10 @@ struct LyricsCard: View {
         TimelineView(.animation(minimumInterval: 1 / 30)) { _ in
             let t = model.position
             VStack(alignment: .leading, spacing: 10) {
-                if let lyrics = model.lyrics, lyrics.kind != .plain {
+                if let lyrics = model.lyrics, lyrics.kind != .plain, let p = lyrics.breakProgress(at: t) {
+                    PauseDots(progress: p)
+                        .frame(minHeight: 60)
+                } else if let lyrics = model.lyrics, lyrics.kind != .plain {
                     let i = lyrics.lineIndex(at: t + 0.15) ?? -1
                     if i >= 0 {
                         let voice = model.state.settings.tv.showSingerNames ? lyrics.voiceIndex(of: lyrics.lines[i]).map { Color(hex: VoicePalette.hex[$0 % VoicePalette.hex.count]) } : nil
@@ -209,5 +212,23 @@ struct UpNextCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 26))
+    }
+}
+
+/// Three dots that breathe and fill across a pause in the singing.
+struct PauseDots: View {
+    var progress: Double
+
+    var body: some View {
+        TimelineView(.animation) { ctx in
+            let breathe = 1 + 0.08 * sin(ctx.date.timeIntervalSinceReferenceDate * 2 * .pi / 2.4)
+            HStack(spacing: 12) {
+                ForEach(0..<3) { i in
+                    let fill = max(0, min(1, progress * 3 - Double(i)))
+                    Circle().fill(.white.opacity(0.22 + 0.73 * fill)).frame(width: 14, height: 14).scaleEffect((0.82 + 0.18 * fill) * breathe)
+                }
+            }
+        }
+        .accessibilityLabel("Instrumental")
     }
 }
