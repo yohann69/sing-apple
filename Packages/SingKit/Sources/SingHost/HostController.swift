@@ -1056,6 +1056,9 @@ public final class HostController: HostAPI {
             guard host else { throw QueueError.notAllowed }
             var incoming = s
             incoming.services = settings.services
+            incoming.storage = settings.storage
+            incoming.system = settings.system
+            incoming.network = settings.network
             settings = incoming
         case .request(let r):
             addRequest(r.track, singerIDs: r.singerIDs)
