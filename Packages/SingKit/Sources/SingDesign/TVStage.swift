@@ -245,6 +245,8 @@ struct ProgressLine: View {
 
 /// Apple Music style column: every line keeps its size, the column glides so the sung line sits
 /// at the same height, lines follow each other in a short wave, and distance adds blur and fade.
+/// One line at a time, in place: the line being sung large in the middle, the previous and next lines
+/// smaller above and below when those options are on. Lines change with a quick crossfade, never a scroll.
 struct LyricsColumn: View {
     var lyrics: Lyrics
     var time: TimeInterval
@@ -252,139 +254,113 @@ struct LyricsColumn: View {
     var singers: [Singer]
     var scale: CGFloat
     @Environment(\.singTheme) private var theme
-    @State private var heights: [Int: CGFloat] = [:]
-
-    private var agentOrder: [String] {
-        var seen: [String] = []
-        let groups = Set(lyrics.agents.filter(\.isGroup).map(\.id))
-        for l in lyrics.lines { if let a = l.agent, !groups.contains(a), !seen.contains(a) { seen.append(a) } }
-        return seen
-    }
-
-    private func isGroup(_ agent: String?) -> Bool {
-        guard let agent else { return false }
-        return lyrics.agents.contains { $0.id == agent && $0.isGroup }
-    }
 
     /// Voices alternate sides: first on the left, second on the right, and so on.
-    private func alignment(_ line: LyricLine) -> HorizontalAlignment {
-        guard let i = lyrics.voiceIndex(of: line) else { return .leading }
+    private func alignment(_ line: LyricLine, in l: Lyrics) -> HorizontalAlignment {
+        guard let i = l.voiceIndex(of: line) else { return .leading }
         return i % 2 == 1 ? .trailing : .leading
     }
 
-    private func voiceColor(_ line: LyricLine) -> Color? {
+    private func voiceColor(_ line: LyricLine, in l: Lyrics) -> Color? {
         guard settings.showSingerNames else { return nil }
-        return lyrics.voiceIndex(of: line).map { Color(hex: VoicePalette.hex[$0 % VoicePalette.hex.count]) }
+        return l.voiceIndex(of: line).map { Color(hex: VoicePalette.hex[$0 % VoicePalette.hex.count]) }
     }
 
-    private func singer(for line: LyricLine) -> Singer? {
-        guard lyrics.isDuet else { return singers.first }
-        if isGroup(line.agent) { return nil }
-        guard let a = line.agent, let i = agentOrder.firstIndex(of: a), singers.indices.contains(i) else { return singers.first }
-        return singers[i]
-    }
-
-    /// The line to centre on: the one being sung, or the next one during a break.
-    private func focusIndex() -> Int {
-        let lines = lyrics.lines
-        guard let i = lyrics.lineIndex(at: time + 0.25) else { return 0 }
+    /// The line to show: the one being sung, or the next one during a short break.
+    private func focusIndex(_ lines: [LyricLine]) -> Int {
+        guard let i = Lyrics(kind: lyrics.kind, source: lyrics.source, lines: lines).lineIndex(at: time + 0.25) else { return 0 }
         if time > lines[i].end + 0.4, i + 1 < lines.count { return i + 1 }
         return i
     }
 
     var body: some View {
-        let lines = lyrics.lines
-        let focus = focusIndex()
-        let size = settings.lyricSize * scale
-        let spacing = size * 0.42
-        let before = settings.showPreviousLine ? max(1, settings.contextLines) + 1 : 0
-        let after = settings.showNextLine ? max(1, settings.contextLines) + 2 : 0
-        let range = max(0, focus - before)...min(lines.count - 1, focus + after)
-        let focusLine = lines[focus]
-        let waiting = time < focusLine.start - 0.2
-        let gap = focusLine.start - time
-        let prevEnd = focus > 0 ? lines[focus - 1].end : 0
-        // A real pause (instrumental, intro): hide every line and show breathing dots until shortly before singing resumes.
-        let breakStart = focus > 0 ? prevEnd + 0.6 : 0
-        let resumeAt = focusLine.start - 1.4
-        let inBreak = waiting && focusLine.start - prevEnd >= 4.5 && time >= breakStart && time < resumeAt
-        let breakProgress = inBreak ? (time - breakStart) / max(0.5, resumeAt - breakStart) : 0
-        let showDots = settings.showCountdown && inBreak
-
         GeometryReader { geo in
-            let anchor = geo.size.height * 0.36
-            ZStack(alignment: .topLeading) {
-                ForEach(Array(range), id: \.self) { i in
-                    let line = lines[i]
-                    let d = i - focus
-                    let y = anchor + offset(of: i, focus: focus, spacing: spacing, fallback: size * 1.3)
-                    lineView(line, isFocus: i == focus && !waiting, distance: d, size: size)
-                        .frame(width: geo.size.width, alignment: Alignment(horizontal: alignment(line), vertical: .top))
-                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { h in
-                            if abs((heights[i] ?? 0) - h) > 0.5 { heights[i] = h }
+            let size = settings.lyricSize * scale
+            // About how many characters fit on one row at this size; longer lines are cut into pieces.
+            let maxChars = max(14, Int(geo.size.width / (size * 0.5)))
+            let l = lyrics.splitForDisplay(maxChars: maxChars)
+            let lines = l.lines
+            let focus = focusIndex(lines)
+            let focusLine = lines[focus]
+            let waiting = time < focusLine.start - 0.2
+            let pause = l.breakProgress(at: time)
+            let showPrev = settings.showPreviousLine && focus > 0 && pause == nil
+            let showNext = settings.showNextLine && focus + 1 < lines.count && pause == nil
+            let small = size * 0.56
+
+            VStack(spacing: size * 0.38) {
+                Group {
+                    if showPrev {
+                        lineView(lines[focus - 1], in: l, state: .past, size: small)
+                            .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment(lines[focus - 1], in: l), vertical: .center))
+                            .id("p\(focus - 1)")
+                    } else {
+                        Color.clear.frame(height: small * 1.2)
+                    }
+                }
+                .transition(.opacity)
+
+                ZStack {
+                    if let p = pause {
+                        if settings.showCountdown {
+                            CountdownDots(progress: p, scale: scale)
+                                .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment(focusLine, in: l), vertical: .center))
+                                .transition(.opacity.combined(with: .scale(scale: 0.85)))
                         }
-                        .offset(y: y)
-                        .opacity(inBreak ? 0 : opacity(d, waiting: waiting))
-                        .blur(radius: (d == 0 && !waiting) ? 0 : min(7, CGFloat(abs(d)) * 2.2 + (waiting && d == 0 ? 0.8 : 0)) * scale)
-                        .scaleEffect(d == 0 && !waiting ? 1 : 0.97, anchor: alignment(line) == .trailing ? .trailing : .leading)
-                        .animation(.spring(response: 0.85, dampingFraction: 0.86).delay(Double(max(0, d)) * 0.045), value: focus)
-                        .animation(.easeInOut(duration: 0.5), value: waiting)
-                        .animation(.easeInOut(duration: 0.7), value: inBreak)
-                        .transition(.opacity.combined(with: .offset(y: d > 0 ? 60 * scale : -60 * scale)))
+                    } else {
+                        lineView(focusLine, in: l, state: waiting ? .upcoming : .current, size: size)
+                            .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment(focusLine, in: l), vertical: .center))
+                            .id("c\(focus)")
+                            .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.96)), removal: .opacity))
+                    }
                 }
-                if showDots {
-                    CountdownDots(progress: breakProgress, scale: scale)
-                        .frame(width: geo.size.width, alignment: Alignment(horizontal: alignment(focusLine), vertical: .center))
-                        .offset(y: anchor + size * 0.2)
-                        .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .leading)))
+                .frame(minHeight: size * 1.3)
+
+                Group {
+                    if showNext {
+                        lineView(lines[focus + 1], in: l, state: .upcoming, size: small)
+                            .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment(lines[focus + 1], in: l), vertical: .center))
+                            .id("n\(focus + 1)")
+                    } else {
+                        Color.clear.frame(height: small * 1.2)
+                    }
                 }
+                .transition(.opacity)
             }
-            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
-            .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.12), .init(color: .black, location: 0.86), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
-            .animation(.easeInOut(duration: 0.4), value: showDots)
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
+            .animation(.easeInOut(duration: 0.28), value: focus)
+            .animation(.easeInOut(duration: 0.45), value: pause == nil)
+            .animation(.easeInOut(duration: 0.35), value: waiting)
         }
     }
 
-    private func opacity(_ d: Int, waiting: Bool) -> Double {
-        if d == 0 { return waiting ? 0.75 : 1 }
-        if d > 0 { return max(0.12, 0.5 - Double(d - 1) * 0.14) }
-        return max(0.08, 0.32 - Double(-d - 1) * 0.14)
-    }
+    enum LineState { case past, current, upcoming }
 
-    private func offset(of i: Int, focus: Int, spacing: CGFloat, fallback: CGFloat) -> CGFloat {
-        if i == focus { return 0 }
-        var y: CGFloat = 0
-        if i > focus {
-            for k in focus..<i { y += (heights[k] ?? fallback) + spacing }
-        } else {
-            for k in i..<focus { y -= (heights[k] ?? fallback) + spacing }
-        }
-        return y
-    }
-
-    private func lineView(_ line: LyricLine, isFocus: Bool, distance: Int, size: CGFloat) -> some View {
-        let align = alignment(line)
+    private func lineView(_ line: LyricLine, in l: Lyrics, state: LineState, size: CGFloat) -> some View {
+        let align = alignment(line, in: l)
         // One voice: white text. Several voices: each voice keeps its own color, sung or not.
-        let voice = voiceColor(line)
-        let color = voice ?? .white
+        let voice = voiceColor(line, in: l)
+        let isCurrent = state == .current
         let sung = voice ?? .white
-        let dim = voice.map { $0.opacity(isFocus ? 0.45 : 0.9) } ?? .white.opacity(isFocus ? 0.32 : 1)
-        let wipe = lyrics.kind >= .word || settings.estimatedWordWipe
-        let t = distance < 0 ? max(time, line.end + 1) : (distance > 0 ? min(time, line.start - 1) : time)
+        let dim = (voice ?? .white).opacity(isCurrent ? 0.4 : (state == .past ? 0.45 : 0.55))
+        let wipe = (l.kind >= .word || settings.estimatedWordWipe) && isCurrent
+        let t = state == .past ? max(time, line.end + 1) : (state == .upcoming ? min(time, line.start - 1) : time)
         return VStack(alignment: align, spacing: 10 * scale) {
             KaraokeLineView(segments: line.segments, time: t, font: theme.lyricFont(size: size), wordSpacing: size * 0.26,
-                            sung: sung, dim: dim, glow: color.mix(with: .white, by: 0.35), alignment: align, wipe: wipe && isFocus)
-            if settings.showBackingVocals, !line.background.isEmpty {
+                            sung: state == .past ? sung.opacity(0.55) : sung, dim: dim, glow: (voice ?? .white).mix(with: .white, by: 0.35), alignment: align, wipe: wipe)
+            if isCurrent, settings.showBackingVocals, !line.background.isEmpty {
                 KaraokeLineView(segments: line.background, time: t, font: theme.lyricFont(size: size * 0.42).italic(), wordSpacing: size * 0.1,
-                                sung: sung.opacity(0.9), dim: (voice ?? .white).opacity(isFocus ? 0.28 : 0.8), glow: color, alignment: align, wipe: wipe && isFocus)
+                                sung: sung.opacity(0.9), dim: (voice ?? .white).opacity(0.3), glow: voice ?? .white, alignment: align, wipe: wipe)
             }
-            if settings.showRomanization, let ro = line.romanization {
-                Text(ro).font(.system(size: size * 0.36, weight: .medium)).opacity(isFocus ? 0.75 : 0.5)
+            if isCurrent || state == .upcoming, settings.showRomanization, let ro = line.romanization {
+                Text(ro).font(.system(size: size * 0.36, weight: .medium)).opacity(isCurrent ? 0.75 : 0.5)
             }
-            if settings.showTranslation, let tr = line.translation {
+            if isCurrent, settings.showTranslation, let tr = line.translation {
                 Text(tr).font(.system(size: size * 0.34, weight: .semibold)).opacity(0.6)
             }
         }
+        .lineLimit(nil)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 

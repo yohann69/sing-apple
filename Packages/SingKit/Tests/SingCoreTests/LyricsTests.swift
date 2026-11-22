@@ -236,3 +236,15 @@ struct NewFormatTests {
         #expect(Hyphenator.syllables("magnifique", language: "fr").count >= 3)
     }
 }
+
+struct SplitTests {
+    @Test func longLinesAreCutAtWords() throws {
+        let l = try LRCParser.parse("[00:10.00]one two three four five six seven eight nine ten eleven twelve\n[00:20.00]short line", source: .embedded)
+        let s = l.splitForDisplay(maxChars: 20)
+        #expect(s.lines.count == 5)
+        #expect(s.lines.allSatisfy { $0.text.count <= 26 })
+        #expect(s.lines[0].start == 10)
+        #expect(s.lines[1].start > s.lines[0].start)
+        #expect(s.lines.last?.text == "short line")
+    }
+}

@@ -212,3 +212,49 @@ extension Lyrics {
         return (t - start) / max(0.5, resume - start)
     }
 }
+
+extension Lyrics {
+    /// Lines too long to show clearly are cut at word boundaries into pieces of about `maxChars`, shown one after the other.
+    /// Each piece keeps its own words' timing; backing vocals go with the piece they overlap, the translation with the first piece.
+    public func splitForDisplay(maxChars: Int) -> Lyrics {
+        guard maxChars >= 8 else { return self }
+        var out: [LyricLine] = []
+        for line in lines {
+            let words = line.words
+            let total = line.text.count
+            guard total > maxChars, words.count > 1 else {
+                var l = line
+                l.id = out.count
+                out.append(l)
+                continue
+            }
+            let pieces = max(2, Int((Double(total) / Double(maxChars)).rounded(.up)))
+            let target = Double(total) / Double(pieces)
+            var groups: [[[LyricSegment]]] = [[]]
+            var len = 0.0
+            for (wi, w) in words.enumerated() {
+                let wl = Double(w.map(\.text).joined().count)
+                let remainingWords = words.count - wi
+                if !groups[groups.count - 1].isEmpty, len + wl / 2 > target, groups.count < pieces, remainingWords >= 1 {
+                    groups.append([])
+                    len = 0
+                }
+                groups[groups.count - 1].append(w)
+                len += wl
+            }
+            for (gi, g) in groups.enumerated() where !g.isEmpty {
+                var segs = g.flatMap { $0 }
+                if let last = segs.indices.last { segs[last].endsWord = true }
+                let start = segs.first!.start, end = segs.last!.end
+                let bg = line.background.filter { $0.end > start && $0.start < (gi == groups.count - 1 ? .infinity : end) }
+                var piece = LyricLine(id: out.count, start: start, end: end, agent: line.agent, segments: segs, background: bg,
+                                      translation: gi == 0 ? line.translation : nil, romanization: nil)
+                piece.confidence = line.confidence
+                out.append(piece)
+            }
+        }
+        var copy = self
+        copy.lines = out
+        return lines.contains { $0.romanization != nil } ? copy.romanized() : copy
+    }
+}

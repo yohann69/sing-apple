@@ -34,7 +34,7 @@ struct SnapshotTests {
         let song = SongSummary(id: 1, title: "Neon Harbor", artist: "The Paper Lanterns", durationMs: 200_000, readiness: .ready, palette: ["#C1ADB5", "#4B6EAA", "#B28681", "#E0D2D5"])
         let solo = Lyrics(kind: .word, source: .manual, lines: [
             line(0, "We kept the lights on for the ships", 10),
-            line(1, "Every window whispers your name tonight", 13.2, bg: "your name, your name"),
+            line(1, "Every window whispers your name tonight while the harbor lights keep burning for the ones who never came back home", 13.2, bg: "your name, your name"),
             line(2, "And I answer from the other side", 16.4),
         ])
         let entry = QueueEntry(song: song, singers: [lea])
