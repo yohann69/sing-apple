@@ -43,19 +43,19 @@ public final class PlaybackEngine {
     /// Records the music as heard (after key and tempo) until `stopRecording`.
     func startRecording(to url: URL) {
         stopRecording()
-        let format = timePitch.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, let rec = try? TapRecorder(url: url, format: format) else { return }
+        let rec = TapRecorder(url: url)
         recorder = rec
         let node = timePitch
         try? objc {
             node.removeTap(onBus: 0)
-            node.installTap(onBus: 0, bufferSize: 4096, format: format) { buf, _ in rec.write(buf) }
+            node.installTap(onBus: 0, bufferSize: 4096, format: nil, block: recordingTap(rec))
         }
     }
 
     func stopRecording() {
         guard let rec = recorder else { return }
-        timePitch.removeTap(onBus: 0)
+        let node = timePitch
+        try? objc { node.removeTap(onBus: 0) }
         rec.close()
         recorder = nil
     }
@@ -174,6 +174,11 @@ public final class PlaybackEngine {
     }
 }
 
+/// Built outside the main actor so the audio thread can call it.
+nonisolated func recordingTap(_ rec: TapRecorder) -> AVAudioNodeTapBlock {
+    { @Sendable buf, _ in rec.write(buf) }
+}
+
 /// Integrated loudness, approximated as gated RMS of the full mix in dBFS.
 enum Loudness {
     static let target = -18.0
@@ -226,19 +231,19 @@ public final class MicEngine {
     func startRecording(to url: URL) {
         stopRecording()
         guard isRunning else { return }
-        let format = limiter.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, let rec = try? TapRecorder(url: url, format: format) else { return }
+        let rec = TapRecorder(url: url)
         recorder = rec
         let node = limiter
         try? objc {
             node.removeTap(onBus: 0)
-            node.installTap(onBus: 0, bufferSize: 4096, format: format) { buf, _ in rec.write(buf) }
+            node.installTap(onBus: 0, bufferSize: 4096, format: nil, block: recordingTap(rec))
         }
     }
 
     func stopRecording() {
         guard let rec = recorder else { return }
-        limiter.removeTap(onBus: 0)
+        let node = limiter
+        try? objc { node.removeTap(onBus: 0) }
         rec.close()
         recorder = nil
     }

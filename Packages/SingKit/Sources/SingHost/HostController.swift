@@ -178,6 +178,7 @@ public final class HostController: HostAPI {
         await loadOwnerPIN()
         await loadEvicted()
         await loadSongPrefs()
+        removeStaleTakes()
         await restoreQueue()
         startServer()
         startWatching()
@@ -657,7 +658,6 @@ public final class HostController: HostAPI {
     }
 
     public func seek(to seconds: Double) {
-        if take != nil { discardTake() }
         try? playback.seek(to: seconds)
         syncPosition()
         scheduleBroadcast()

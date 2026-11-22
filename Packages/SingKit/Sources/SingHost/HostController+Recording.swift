@@ -21,6 +21,14 @@ extension HostController {
         take = RecordingTake(dir: dir, entryID: entry.id, startedAt: .now)
     }
 
+    /// Takes left behind by a quit in the middle of a song.
+    func removeStaleTakes() {
+        let fm = FileManager.default
+        for d in (try? fm.contentsOfDirectory(at: paths.recordings, includingPropertiesForKeys: nil, options: [])) ?? [] where d.lastPathComponent.hasPrefix(".take-") {
+            try? fm.removeItem(at: d)
+        }
+    }
+
     func discardTake() {
         guard let t = take else { return }
         playback.stopRecording()

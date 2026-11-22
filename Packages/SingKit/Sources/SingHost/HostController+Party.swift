@@ -123,7 +123,6 @@ extension HostController {
         nowPlaying.loopStartMs = max(0, s)
         nowPlaying.loopEndMs = e
         usedLoop = true
-        if take != nil { discardTake() }
         scheduleBroadcast()
     }
 

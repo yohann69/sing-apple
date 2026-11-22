@@ -1,20 +1,32 @@
 #if os(macOS)
 import AVFoundation
 import Foundation
+import SingObjC
 
 /// Writes what an engine tap hears to a file; safe to feed from the audio thread.
+/// The file is created from the first buffer so its format always matches what the tap delivers.
 final class TapRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var file: AVAudioFile?
+    private var failed = false
     let url: URL
 
-    init(url: URL, format: AVAudioFormat) throws {
-        self.url = url
-        file = try AVAudioFile(forWriting: url, settings: format.settings, commonFormat: .pcmFormatFloat32, interleaved: false)
-    }
+    init(url: URL) { self.url = url }
 
     func write(_ buffer: AVAudioPCMBuffer) {
-        lock.withLock { try? file?.write(from: buffer) }
+        lock.withLock {
+            guard !failed else { return }
+            if file == nil {
+                let f = buffer.format
+                let settings: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: f.sampleRate, AVNumberOfChannelsKey: f.channelCount,
+                                               AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true, AVLinearPCMIsBigEndianKey: false]
+                file = try? AVAudioFile(forWriting: url, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: f.isInterleaved)
+                if file == nil { failed = true; return }
+            }
+            guard let file else { return }
+            var error: NSError?
+            if !SingTryObjC({ try? file.write(from: buffer) }, &error) { failed = true }
+        }
     }
 
     func close() {
@@ -64,39 +76,35 @@ enum RecordingMixer {
     /// `voiceDelay` is how late the voice arrived (output plus input latency); it is trimmed from the voice start.
     static func mix(music: URL, voice: URL, to out: URL, voiceDelay: TimeInterval, voiceGain: Float = 1.0) throws -> TimeInterval {
         let m = try AVAudioFile(forReading: music)
-        let v = try AVAudioFile(forReading: voice)
         let rate = m.processingFormat.sampleRate
+        // The mic often runs at another rate than the music: bring the voice to the music's rate first.
+        let v = try StereoAudio.load(voice, sampleRate: rate)
+        let skip = min(v.left.count, max(0, Int(voiceDelay * rate)))
         let fmt = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 2)!
         let settings: [String: Any] = [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: rate, AVNumberOfChannelsKey: 2, AVEncoderBitRateKey: 192_000]
         try? FileManager.default.removeItem(at: out)
         let writer = try AVAudioFile(forWriting: out, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
-        let skip = AVAudioFramePosition(voiceDelay * v.processingFormat.sampleRate)
-        if skip < v.length { v.framePosition = max(0, skip) }
         let chunk: AVAudioFrameCount = 8192
         let mb = AVAudioPCMBuffer(pcmFormat: m.processingFormat, frameCapacity: chunk)!
-        let vb = AVAudioPCMBuffer(pcmFormat: v.processingFormat, frameCapacity: chunk)!
         let ob = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: chunk)!
-        let sameRate = v.processingFormat.sampleRate == rate
-        var total: AVAudioFramePosition = 0
+        var total = 0
         while m.framePosition < m.length {
             try m.read(into: mb, frameCount: chunk)
             let n = Int(mb.frameLength)
             if n == 0 { break }
-            vb.frameLength = 0
-            if sameRate, v.framePosition < v.length { try? v.read(into: vb, frameCount: AVAudioFrameCount(n)) }
             ob.frameLength = AVAudioFrameCount(n)
             for c in 0..<2 {
                 let mc = mb.floatChannelData![min(c, Int(mb.format.channelCount) - 1)]
-                let vc = vb.floatChannelData![min(c, Int(vb.format.channelCount) - 1)]
+                let vc = c == 0 ? v.left : v.right
                 let oc = ob.floatChannelData![c]
-                let vn = Int(vb.frameLength)
                 for i in 0..<n {
-                    let s = mc[i] + (i < vn ? vc[i] * voiceGain : 0)
+                    let vi = skip + total + i
+                    let s = mc[i] + (vi < vc.count ? vc[vi] * voiceGain : 0)
                     oc[i] = max(-1, min(1, s))
                 }
             }
             try writer.write(from: ob)
-            total += AVAudioFramePosition(n)
+            total += n
         }
         return Double(total) / rate
     }
