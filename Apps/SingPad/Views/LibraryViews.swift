@@ -18,7 +18,7 @@ struct SongRow: View {
                 HStack(spacing: 6) {
                     Text(song.title).fontWeight(.semibold).lineLimit(1)
                     if song.isDuet { Image(systemName: "person.2.fill").font(.caption).foregroundStyle(.secondary) }
-                    if model.isFavorite(song.id) { Image(systemName: "heart.fill").font(.caption).foregroundStyle(.pink) }
+                    if model.isFavorite(song.id) { Image(systemName: "heart.fill").font(.caption).foregroundStyle(.pink).accessibilityLabel("Favorite") }
                 }
                 Text(detail ?? song.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
             }

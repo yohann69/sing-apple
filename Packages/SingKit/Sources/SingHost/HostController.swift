@@ -207,6 +207,14 @@ public final class HostController: HostAPI {
         await loadSongPrefs()
         removeStaleTakes()
         await loadUploads()
+        if !UserDefaults.standard.bool(forKey: "standalone-v1") {
+            UserDefaults.standard.set(true, forKey: "standalone-v1")
+            var s = settings
+            s.services.singAPIEnabled = false
+            s.services.uploadsEnabled = false
+            if !s.services.providerOrder.contains("Sing") { s.services.providerOrder.insert("Sing", at: 0) }
+            settings = s
+        }
         Self.installCrashLogging()
         playback.onConfigurationChange = { [weak self] in self?.outputChanged() }
         await restoreQueue()

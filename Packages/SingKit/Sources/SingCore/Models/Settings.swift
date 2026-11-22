@@ -228,7 +228,8 @@ public struct ThemeSettings: Codable, Sendable, Hashable {
 
 public struct ServiceSettings: Codable, Sendable, Hashable {
     public var singAPIBase = "https://lyrics-api-production-b10f.up.railway.app"
-    public var singAPIEnabled = true
+    /// Off by default: Sing! is fully standalone; turn on only with a lyrics server you run.
+    public var singAPIEnabled = false
     public var lrclibEnabled = true
     public var neteaseEnabled = true
     public var kugouEnabled = true
@@ -238,7 +239,7 @@ public struct ServiceSettings: Codable, Sendable, Hashable {
     public var providerOrder = ["Sing", "NetEase", "QQ Music", "Kugou", "Musixmatch", "LRCLIB"]
     public var uploadAPIBase = "https://upload-api-production.up.railway.app"
     /// Share AI-synced and hand-fixed lyrics with the Sing lyrics database.
-    public var uploadsEnabled = true
+    public var uploadsEnabled = false
     public var aiAlignmentEnabled = true
     public var catalogSearchEnabled = true
     public var timeoutSeconds: Double = 6

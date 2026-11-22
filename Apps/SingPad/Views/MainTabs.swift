@@ -84,7 +84,7 @@ struct MiniPlayer: View {
                 Button { model.send(.transport(.pause)) } label: {
                     Image(systemName: np.state == .playing ? "pause.fill" : "play.fill").contentTransition(.symbolEffect(.replace))
                 }
-                Button { model.send(.transport(.skip)) } label: { Image(systemName: "forward.fill") }
+                Button { model.send(.transport(.skip)) } label: { Image(systemName: "forward.fill") }.accessibilityLabel("Next song")
             }
         }
         .padding(.horizontal, 14)
@@ -225,7 +225,7 @@ struct Teleprompter: View {
         m.meters = { [model] in model.meters }
         return TVStageView(model: m) { model.position }
             .overlay(alignment: .topTrailing) {
-                Button { dismiss() } label: { Image(systemName: "xmark").font(.title2.bold()).padding(14) }
+                Button { dismiss() } label: { Image(systemName: "xmark").font(.title2.bold()).padding(14) }.accessibilityLabel("Close")
                     .buttonStyle(.plain).glassEffect(.regular.interactive(), in: .circle).padding(24)
             }
             .persistentSystemOverlays(.hidden)

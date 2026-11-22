@@ -37,6 +37,7 @@ public struct RecordingsList: View {
                     Button { toggle(r) } label: {
                         Image(systemName: playingID == r.id ? "stop.fill" : "play.fill").font(.title3).frame(width: 44, height: 44)
                     }
+                    .accessibilityLabel(playingID == r.id ? "Stop" : "Play \(r.songTitle)")
                     .buttonStyle(.plain)
                     .glassEffect(.regular.interactive(), in: .circle)
                     VStack(alignment: .leading, spacing: 3) {
@@ -58,6 +59,7 @@ public struct RecordingsList: View {
                     } label: {
                         Image(systemName: "ellipsis.circle").font(.title3)
                     }
+                    .accessibilityLabel("More")
                     .buttonStyle(.borderless)
                 }
                 .padding(.vertical, 4)

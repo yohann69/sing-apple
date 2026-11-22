@@ -1,6 +1,8 @@
 name: Sing
 options:
   bundleIdPrefix: io.github.yohann69.sing
+  developmentLanguage: en
+  knownRegions: [en, fr, Base]
   deploymentTarget:
     macOS: "26.0"
     iOS: "26.0"
@@ -61,6 +63,7 @@ targets:
         CFBundleDisplayName: Sing!
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleLocalizations: [en, fr]
         LSApplicationCategoryType: public.app-category.music
         NSMicrophoneUsageDescription: Sing! uses the microphone so singers hear themselves through the speakers.
         NSLocalNetworkUsageDescription: Sing! talks to the iPads and phones in the room that control the karaoke.
@@ -113,6 +116,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
+        CFBundleLocalizations: [en, fr]
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight, UIInterfaceOrientationPortraitUpsideDown]
         UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UIRequiresFullScreen~ipad: true

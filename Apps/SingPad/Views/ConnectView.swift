@@ -100,7 +100,7 @@ struct ConnectView: View {
             }
             .ignoresSafeArea()
             .overlay(alignment: .topTrailing) {
-                Button { scanning = false } label: { Image(systemName: "xmark").padding(10) }
+                Button { scanning = false } label: { Image(systemName: "xmark").padding(10) }.accessibilityLabel("Close")
                     .buttonStyle(.glass)
                     .padding()
             }

@@ -183,7 +183,7 @@ struct SearchPanel: View {
                 if loading { ProgressView().controlSize(.small) }
                 HumButton { found in humResults = found; query = "" }
                 if !query.isEmpty {
-                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain).opacity(0.7)
+                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain).opacity(0.7).accessibilityLabel("Clear search")
                 }
             }
             .padding(14)

@@ -31,28 +31,57 @@ extension HostController {
         try await stats.duetSuggestions(a, b).map { s in Suggestion(song: songs.first { $0.id == s.song.id } ?? s.song, reason: s.reason) }
     }
 
-    /// Finds songs from a remembered line through the Sing lyrics database, library songs first.
+    /// Finds songs from a remembered line: first in the lyrics already on this Mac, then on LRCLIB (free, no account).
     public func searchLines(_ q: String) async -> SearchResponse {
-        struct Hit: Decodable { var isrc: String?; var title: String; var artist: String; var text: String }
-        struct R: Decodable { var results: [Hit] }
-        guard q.count >= 3, var c = URLComponents(string: settings.services.singAPIBase + "/v1/search/lines") else { return SearchResponse(songs: [], total: 0) }
+        let query = Self.lineKey(q)
+        guard query.count >= 3 else { return SearchResponse(songs: [], total: 0) }
+        let words = query.split(separator: " ").map(String.init).filter { $0.count > 1 }
+        let records = (try? await library.all()) ?? []
+        let service = lyricsService
+        let local: [(SongID, Int)] = await Task.detached(priority: .userInitiated) {
+            records.compactMap { r -> (SongID, Int)? in
+                guard let id = r.id, let l = service.cached(r) else { return nil }
+                var best = 0
+                for line in l.lines {
+                    let text = HostController.lineKey(line.text)
+                    if text.contains(query) { best = 1000; break }
+                    best = max(best, words.filter { text.contains($0) }.count)
+                }
+                return best >= max(2, words.count - 1) || best == 1000 ? (id, best) : nil
+            }.sorted { $0.1 > $1.1 }
+        }.value
+        let owned = local.prefix(20).compactMap { hit in songs.first { $0.id == hit.0 } }.filter { !familyHidden($0) }
+
+        struct Hit: Decodable { var trackName: String?; var artistName: String?; var albumName: String?; var duration: Double?; var plainLyrics: String? }
+        var catalog: [CatalogTrack] = []
+        var c = URLComponents(string: "https://lrclib.net/api/search")!
         c.queryItems = [URLQueryItem(name: "q", value: q)]
         var req = URLRequest(url: c.url!)
         req.timeoutInterval = settings.services.timeoutSeconds
-        guard let (d, _) = try? await URLSession.shared.data(for: req), let hits = try? JSONDecoder().decode(R.self, from: d).results else {
-            return SearchResponse(songs: [], total: 0)
-        }
-        var owned: [SongSummary] = []
-        var catalog: [CatalogTrack] = []
-        for h in hits {
-            let key = normalizeForMatch(h.title) + "|" + normalizeForMatch(Self.firstArtist(h.artist))
-            if let s = songs.first(where: { ($0.isrc != nil && $0.isrc == h.isrc) || normalizeForMatch($0.title) + "|" + normalizeForMatch(Self.firstArtist($0.artist)) == key }) {
-                if !owned.contains(s) { owned.append(s) }
-            } else {
-                catalog.append(CatalogTrack(id: "sing:" + (h.isrc ?? key), title: h.title, artist: h.artist, album: nil, durationMs: 0, artworkURL: nil, isrc: h.isrc, sources: ["Sing lyrics: “\(h.text)”"], year: nil))
+        req.setValue("Sing/0.2 (https://github.com/yohann69/sing-apple)", forHTTPHeaderField: "User-Agent")
+        if settings.services.lrclibEnabled, let (d, _) = try? await URLSession.shared.data(for: req), let hits = try? JSONDecoder().decode([Hit].self, from: d) {
+            var seen = Set(owned.map { normalizeForMatch($0.title) + "|" + normalizeForMatch(Self.firstArtist($0.artist)) })
+            for h in hits.prefix(15) {
+                guard let t = h.trackName, let a = h.artistName else { continue }
+                let key = normalizeForMatch(t) + "|" + normalizeForMatch(Self.firstArtist(a))
+                guard seen.insert(key).inserted else { continue }
+                if songs.contains(where: { normalizeForMatch($0.title) + "|" + normalizeForMatch(Self.firstArtist($0.artist)) == key }) {
+                    continue
+                } else {
+                    let line = h.plainLyrics?.components(separatedBy: "\n").first { Self.lineKey($0).contains(words.first ?? query) }
+                    catalog.append(CatalogTrack(id: "lrclib:" + key, title: t, artist: a, album: h.albumName, durationMs: Int((h.duration ?? 0) * 1000), artworkURL: nil, isrc: nil,
+                                                sources: [line.map { "“\($0.trimmingCharacters(in: .whitespaces))”" } ?? "LRCLIB"], year: nil))
+                }
             }
         }
         return SearchResponse(songs: owned, total: owned.count, catalog: catalog)
+    }
+
+    /// Lower case, no accents or punctuation, single spaces: how lyric lines are compared.
+    nonisolated static func lineKey(_ s: String) -> String {
+        let f = s.folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive], locale: nil)
+        return f.map { $0.isLetter || $0.isNumber ? $0 : " " }.reduce(into: "") { $0.append($1) }
+            .split(separator: " ").joined(separator: " ")
     }
 
     var languageModelReady: Bool { SystemLanguageModel.default.availability == .available }
