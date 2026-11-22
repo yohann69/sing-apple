@@ -40,7 +40,9 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Sing! finds and controls the karaoke Mac on your network.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Hum a tune to find the song.</string>
+	<string>Hum a tune to find the song, or use this device as a mic.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

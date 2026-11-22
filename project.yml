@@ -73,12 +73,33 @@ targets:
         CODE_SIGN_STYLE: Manual
         ENABLE_HARDENED_RUNTIME: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  SingPadWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Apps/SingPadWidgets
+      - path: Apps/SingPadShared
+    info:
+      path: Apps/SingPadWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Sing!
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.yohann69.sing.pad.widgets
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1,2"
   SingPad:
     type: application
     platform: iOS
     sources:
       - path: Apps/SingPad
+      - path: Apps/SingPadShared
     dependencies:
+      - target: SingPadWidgets
       - package: SingKit
         product: SingCore
       - package: SingKit
@@ -98,7 +119,8 @@ targets:
         NSLocalNetworkUsageDescription: Sing! finds and controls the karaoke Mac on your network.
         NSBonjourServices: [_sing._tcp]
         NSCameraUsageDescription: Scan the QR code on the TV to join the party.
-        NSMicrophoneUsageDescription: Hum a tune to find the song.
+        NSMicrophoneUsageDescription: Hum a tune to find the song, or use this device as a mic.
+        NSSupportsLiveActivities: true
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
         CFBundleURLTypes:

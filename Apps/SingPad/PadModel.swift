@@ -1,3 +1,4 @@
+import ActivityKit
 import AVFoundation
 import Foundation
 import Observation
@@ -36,6 +37,29 @@ final class PadModel {
     /// Granted by the owner PIN; kept in memory only.
     var ownerToken: String?
     var meters: [Float] = []
+    @ObservationIgnored private var turnActivity: Activity<TurnAttributes>?
+
+    /// Keeps the lock-screen "you're up" activity in step with the queue.
+    func updateTurnActivity() {
+        guard ActivityAuthorizationInfo().areActivitiesEnabled, let me = currentSinger else { return }
+        let nowIsMe = state.nowPlaying.entry?.singers.contains { $0.id == me.id } == true && state.nowPlaying.state != .finished
+        let idx = state.queue.firstIndex { $0.singers.contains { $0.id == me.id } }
+        guard nowIsMe || idx != nil else {
+            if turnActivity != nil {
+                turnActivity = nil
+                Task { for a in Activity<TurnAttributes>.activities { await a.end(nil, dismissalPolicy: .immediate) } }
+            }
+            return
+        }
+        let entry = nowIsMe ? state.nowPlaying.entry! : state.queue[idx!]
+        let content = TurnAttributes.ContentState(songsAway: nowIsMe ? 0 : idx! + 1, songTitle: entry.song.title, artist: entry.song.artist,
+                                                  nowPlaying: nowIsMe ? nil : state.nowPlaying.entry?.song.title)
+        if turnActivity != nil {
+            Task { for a in Activity<TurnAttributes>.activities { await a.update(ActivityContent(state: content, staleDate: nil)) } }
+        } else {
+            turnActivity = try? Activity.request(attributes: TurnAttributes(singerName: me.name, colorHex: me.colorHex), content: ActivityContent(state: content, staleDate: nil))
+        }
+    }
     @ObservationIgnored let phoneMic = PhoneMicSender()
     var phoneMicOn = false
 
@@ -225,6 +249,7 @@ final class PadModel {
             if var s = saved, s.role != h.role { s.role = h.role; saved = s }
         case .state(let s):
             withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) { state = s }
+            updateTurnActivity()
             refreshLyricsIfNeeded()
         case .position(let p):
             state.nowPlaying.positionMs = p.positionMs
