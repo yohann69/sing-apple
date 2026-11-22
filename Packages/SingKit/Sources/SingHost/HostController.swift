@@ -60,6 +60,10 @@ public final class HostController: HostAPI {
     @ObservationIgnored var lowDiskWarned = false
     @ObservationIgnored var processingStartedAt: Date?
     @ObservationIgnored var lastStorageCheck = Date.distantPast
+    @ObservationIgnored var songPrefs: [SongID: SongPrefs] = [:]
+    @ObservationIgnored var howlSince: Date?
+    @ObservationIgnored var howlMidi: Float?
+    @ObservationIgnored var duckUntil: Date?
     public internal(set) var processingHeld = false
     public internal(set) var restUntil: Date?
     public var hostCode: String
@@ -166,6 +170,7 @@ public final class HostController: HostAPI {
         await loadRequests()
         await loadOwnerPIN()
         await loadEvicted()
+        await loadSongPrefs()
         await restoreQueue()
         startServer()
         startWatching()
@@ -376,8 +381,10 @@ public final class HostController: HostAPI {
         guard nowPlaying.state == .playing else { return }
         let t = lyricTime
         livePoints.removeAll { $0.time < t - 6 || $0.time > t + 0.5 }
-        scoreKeeper.add(time: t, sungMidi: mic.livePitch.midi, level: mic.level)
-        guard let sung = mic.livePitch.midi else { return }
+        guardFeedback()
+        let shift = Float(playback.keyShift)
+        scoreKeeper.add(time: t, sungMidi: mic.livePitch.midi.map { $0 - shift }, level: mic.level)
+        guard let sung = mic.livePitch.midi.map({ $0 - shift }) else { return }
         let target = pitchTrack?.target(at: t)
         let folded = target.map { PitchTrack.foldOctave(sung, toward: $0) } ?? sung
         let hit = target.map { abs(folded - $0) < 1.0 } ?? false
@@ -424,7 +431,7 @@ public final class HostController: HostAPI {
         guard let record = try await library.song(songID) else { throw QueueError.notFound }
         let chosen = singers.filter { singerIDs.contains($0.id) }
         let entry = QueueEntry(song: summary(record), singers: chosen, addedBy: pad)
-        try queue.add(entry, playNext: playNext, maxPerSinger: settings.queue.maxQueuedPerSinger)
+        try queue.add(entry, playNext: playNext, maxPerSinger: settings.queue.maxQueuedPerSinger, fairRotation: settings.queue.fairRotation)
         await logQueueEvent("added", songID: songID, singers: singerIDs, pad: pad)
         if evicted.remove(songID) != nil { saveEvicted() }
         await separation.prioritize(songID)
@@ -569,6 +576,12 @@ public final class HostController: HostAPI {
         Task { await refreshTVTranslation() }
         playback.guideVocal = record.defaultGuideVocal ?? settings.playback.defaultGuideVocal
         nowPlaying.guideVocal = playback.guideVocal
+        let prefs = songPrefs[record.id ?? 0] ?? SongPrefs()
+        playback.keyShift = prefs.keyShift
+        playback.tempo = prefs.tempo
+        nowPlaying.keyShift = prefs.keyShift
+        nowPlaying.tempo = prefs.tempo
+        playback.normalization = settings.playback.normalizeLoudness ? await loudnessGain(record, stems: ready) : 1
         if settings.playback.countdownBetweenSongs {
             nowPlaying.state = .countdown
             countdownEnd = .now.addingTimeInterval(3)
@@ -625,6 +638,23 @@ public final class HostController: HostAPI {
         playback.stop()
         nowPlaying = NowPlaying(state: .idle, guideVocal: settings.playback.defaultGuideVocal)
         lyrics = nil
+        scheduleBroadcast()
+    }
+
+    public func setKey(_ semitones: Int) {
+        let k = max(-6, min(6, semitones))
+        playback.keyShift = k
+        nowPlaying.keyShift = k
+        rememberSongPrefs()
+        scheduleBroadcast()
+    }
+
+    public func setTempo(_ t: Double) {
+        let v = (max(0.75, min(1.25, t)) * 20).rounded() / 20
+        if nowPlaying.state == .playing { syncPosition() }
+        playback.tempo = v
+        nowPlaying.tempo = v
+        rememberSongPrefs()
         scheduleBroadcast()
     }
 
@@ -753,6 +783,8 @@ public final class HostController: HostAPI {
     func finishCurrentPlay(skipped: Bool, score: Double? = nil) {
         guard var play = currentPlay else { return }
         play.score = score
+        play.keyShift = playback.keyShift
+        play.tempo = playback.tempo
         currentPlay = nil
         let duration = max(playback.duration, 1)
         play.endedAt = .now
@@ -828,6 +860,9 @@ public final class HostController: HostAPI {
         playback.volume = settings.playback.musicVolume
         mic.gain = settings.playback.micGain
         mic.reverbMix = settings.playback.micReverb
+        mic.preset = MicPreset(rawValue: settings.playback.micPreset) ?? .hall
+        mic.echo = settings.playback.micEcho
+        mic.applyPreset()
         if settings.playback.micEnabled, !mic.isRunning, server != nil { Task { await startMic() } }
         if !settings.playback.micEnabled, mic.isRunning { mic.stop() }
     }
@@ -1065,6 +1100,15 @@ public final class HostController: HostAPI {
         case .dismissRequest(let id):
             guard host else { throw QueueError.notAllowed }
             dismissRequest(id)
+        case .setKey(let k):
+            guard host else { throw QueueError.notAllowed }
+            setKey(k)
+        case .setTempo(let t):
+            guard host else { throw QueueError.notAllowed }
+            setTempo(t)
+        case .setMicPreset(let p):
+            guard host, MicPreset(rawValue: p) != nil else { throw QueueError.notAllowed }
+            settings.playback.micPreset = p
         case .ping, .auth:
             break
         }

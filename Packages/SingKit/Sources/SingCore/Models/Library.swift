@@ -106,6 +106,23 @@ public struct NowPlaying: Codable, Sendable, Hashable {
     public var guideVocal: Double
     public var currentLine: String?
     public var nextLine: String?
+    /// Semitones up or down from the original key.
+    public var keyShift: Int = 0
+    /// Playback speed, 1 is the original tempo.
+    public var tempo: Double = 1
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        entry = try c.decodeIfPresent(QueueEntry.self, forKey: .entry)
+        state = try c.decode(PlaybackState.self, forKey: .state)
+        positionMs = try c.decode(Int.self, forKey: .positionMs)
+        positionAt = try c.decode(Date.self, forKey: .positionAt)
+        guideVocal = (try? c.decode(Double.self, forKey: .guideVocal)) ?? 0
+        currentLine = try c.decodeIfPresent(String.self, forKey: .currentLine)
+        nextLine = try c.decodeIfPresent(String.self, forKey: .nextLine)
+        keyShift = (try? c.decode(Int.self, forKey: .keyShift)) ?? 0
+        tempo = (try? c.decode(Double.self, forKey: .tempo)) ?? 1
+    }
 
     public init(entry: QueueEntry? = nil, state: PlaybackState = .idle, positionMs: Int = 0, positionAt: Date = .now, guideVocal: Double = 0, currentLine: String? = nil, nextLine: String? = nil) {
         self.entry = entry
@@ -119,6 +136,6 @@ public struct NowPlaying: Codable, Sendable, Hashable {
 
     public func estimatedPosition(at date: Date = .now) -> Int {
         guard state == .playing else { return positionMs }
-        return positionMs + Int(date.timeIntervalSince(positionAt) * 1000)
+        return positionMs + Int(date.timeIntervalSince(positionAt) * 1000 * tempo)
     }
 }

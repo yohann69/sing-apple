@@ -237,6 +237,9 @@ public enum ClientMessage: Sendable {
     case updateSettings(SingSettings)
     case request(Request)
     case dismissRequest(id: String)
+    case setKey(Int)
+    case setTempo(Double)
+    case setMicPreset(String)
     case ping
 
     public struct Enqueue: Codable, Sendable { public var songID: SongID; public var singerIDs: [SingerID]; public var playNext: Bool
@@ -250,6 +253,8 @@ public enum ClientMessage: Sendable {
     private struct Seek: Codable { var positionMs: Int }
     private struct Value: Codable { var value: Double }
     private struct Command: Codable { var command: TransportCommand }
+    private struct Semitones: Codable { var semitones: Int }
+    private struct Preset: Codable { var preset: String }
 }
 
 extension ClientMessage: Codable {
@@ -268,6 +273,9 @@ extension ClientMessage: Codable {
         case "updateSettings": self = .updateSettings(try c.decode(SingSettings.self, forKey: .data))
         case "request": self = .request(try c.decode(Request.self, forKey: .data))
         case "dismissRequest": self = .dismissRequest(id: try c.decode(EntryRef.self, forKey: .data).entryID)
+        case "setKey": self = .setKey(try c.decode(Semitones.self, forKey: .data).semitones)
+        case "setTempo": self = .setTempo(try c.decode(Value.self, forKey: .data).value)
+        case "setMicPreset": self = .setMicPreset(try c.decode(Preset.self, forKey: .data).preset)
         case "ping": self = .ping
         case let other: throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "unknown type \(other)")
         }
@@ -286,6 +294,9 @@ extension ClientMessage: Codable {
         case .updateSettings(let v): try c.encode("updateSettings", forKey: .type); try c.encode(v, forKey: .data)
         case .request(let v): try c.encode("request", forKey: .type); try c.encode(v, forKey: .data)
         case .dismissRequest(let id): try c.encode("dismissRequest", forKey: .type); try c.encode(EntryRef(entryID: id), forKey: .data)
+        case .setKey(let v): try c.encode("setKey", forKey: .type); try c.encode(Semitones(semitones: v), forKey: .data)
+        case .setTempo(let v): try c.encode("setTempo", forKey: .type); try c.encode(Value(value: v), forKey: .data)
+        case .setMicPreset(let v): try c.encode("setMicPreset", forKey: .type); try c.encode(Preset(preset: v), forKey: .data)
         case .ping: try c.encode("ping", forKey: .type)
         }
     }

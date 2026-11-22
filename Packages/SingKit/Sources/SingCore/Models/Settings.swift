@@ -97,6 +97,13 @@ public struct PlaybackSettings: Codable, Sendable, Hashable {
     public var micReverb: Double = 0.35
     public var musicVolume: Double = 0.9
     public var playOriginalWhenNotReady = false
+    /// One of `MicPreset` raw values.
+    public var micPreset = MicPreset.hall.rawValue
+    public var micEcho: Double = 0
+    /// Ducks the mics when a howl builds up.
+    public var feedbackProtection = true
+    /// Evens out loudness between songs.
+    public var normalizeLoudness = true
 
     public init() {}
 
@@ -112,10 +119,31 @@ public struct PlaybackSettings: Codable, Sendable, Hashable {
         micReverb = v(.micReverb, d.micReverb)
         musicVolume = v(.musicVolume, d.musicVolume)
         playOriginalWhenNotReady = v(.playOriginalWhenNotReady, d.playOriginalWhenNotReady)
+        micPreset = v(.micPreset, d.micPreset)
+        micEcho = v(.micEcho, d.micEcho)
+        feedbackProtection = v(.feedbackProtection, d.feedbackProtection)
+        normalizeLoudness = v(.normalizeLoudness, d.normalizeLoudness)
+    }
+}
+
+public enum MicPreset: String, Codable, Sendable, CaseIterable {
+    case natural, studio, hall, stadium, echo, radio
+
+    public var name: String {
+        switch self {
+        case .natural: "Natural"
+        case .studio: "Studio"
+        case .hall: "Concert hall"
+        case .stadium: "Stadium"
+        case .echo: "Echo"
+        case .radio: "Radio"
+        }
     }
 }
 
 public struct QueueSettings: Codable, Sendable, Hashable {
+    /// Singers take turns: a new song goes after everyone else's next song.
+    public var fairRotation = true
     public var guestsCanQueue = true
     public var guestsCanRemoveOwn = true
     public var maxQueuedPerSinger = 0
@@ -126,6 +154,7 @@ public struct QueueSettings: Codable, Sendable, Hashable {
         let d = QueueSettings()
         let c = try decoder.container(keyedBy: CodingKeys.self)
         func v<T: Decodable>(_ k: CodingKeys, _ fallback: T) -> T { (try? c.decode(T.self, forKey: k)) ?? fallback }
+        fairRotation = v(.fairRotation, d.fairRotation)
         guestsCanQueue = v(.guestsCanQueue, d.guestsCanQueue)
         guestsCanRemoveOwn = v(.guestsCanRemoveOwn, d.guestsCanRemoveOwn)
         maxQueuedPerSinger = v(.maxQueuedPerSinger, d.maxQueuedPerSinger)

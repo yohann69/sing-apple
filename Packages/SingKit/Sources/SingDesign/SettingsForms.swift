@@ -84,6 +84,9 @@ public struct PartySettingsSections: View {
             Toggle("Countdown before each song", isOn: $settings.playback.countdownBetweenSongs)
             Toggle("Play the next song automatically", isOn: $settings.playback.autoAdvance)
             Toggle("Play the original when stems are not ready", isOn: $settings.playback.playOriginalWhenNotReady)
+            Toggle("Singers take turns in the queue", isOn: $settings.queue.fairRotation)
+            Toggle("Even out loudness between songs", isOn: $settings.playback.normalizeLoudness)
+            Toggle("Turn mics down when feedback howls", isOn: $settings.playback.feedbackProtection)
             VStack(alignment: .leading) {
                 Text("Default guide vocal: \(Int(settings.playback.defaultGuideVocal * 100))%")
                 Slider(value: $settings.playback.defaultGuideVocal, in: 0...1)

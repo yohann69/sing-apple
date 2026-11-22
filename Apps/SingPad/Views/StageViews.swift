@@ -360,13 +360,24 @@ struct MixerSheet: View {
                 Section("Music") {
                     slider("Guide vocal", "person.wave.2", Binding(get: { model.state.nowPlaying.guideVocal }, set: { model.send(.setGuideVocal($0)) }))
                     slider("Music volume", "speaker.wave.2", binding({ $0.musicVolume }) { $0.musicVolume = $1 })
+                    let np = model.state.nowPlaying
+                    Stepper(value: Binding(get: { np.keyShift }, set: { model.send(.setKey($0)) }), in: -6...6) {
+                        LabeledContent { Text(np.keyShift == 0 ? "Original" : "\(np.keyShift > 0 ? "+" : "")\(np.keyShift)").monospacedDigit() } label: { Label("Key", systemImage: "music.note") }
+                    }
+                    Stepper(value: Binding(get: { np.tempo }, set: { model.send(.setTempo($0)) }), in: 0.75...1.25, step: 0.05) {
+                        LabeledContent { Text("\(Int((np.tempo * 100).rounded()))%").monospacedDigit() } label: { Label("Tempo", systemImage: "metronome") }
+                    }
                 }
                 Section {
                     Toggle(isOn: Binding(get: { model.state.settings.playback.micEnabled }, set: { v in model.updateSettings { $0.playback.micEnabled = v } })) {
                         Label("Microphone", systemImage: "mic")
                     }
                     slider("Mic volume", "mic.fill", binding({ $0.micGain }) { $0.micGain = $1 })
+                    Picker(selection: Binding(get: { model.state.settings.playback.micPreset }, set: { p in model.updateSettings { $0.playback.micPreset = p } })) {
+                        ForEach(MicPreset.allCases, id: \.rawValue) { Text($0.name).tag($0.rawValue) }
+                    } label: { Label("Effect", systemImage: "sparkles") }
                     slider("Reverb", "waveform.path", binding({ $0.micReverb }) { $0.micReverb = $1 })
+                    slider("Echo", "dot.radiowaves.right", binding({ $0.micEcho }) { $0.micEcho = $1 })
                 } header: {
                     Text("Microphone")
                 } footer: {
