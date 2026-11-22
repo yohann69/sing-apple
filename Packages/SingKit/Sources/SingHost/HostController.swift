@@ -4,6 +4,7 @@ import AVFoundation
 import CryptoKit
 import Foundation
 import GRDB
+import IOKit.pwr_mgt
 import Observation
 import SingCore
 
@@ -29,9 +30,9 @@ public final class HostController: HostAPI {
 
     public private(set) var songs: [SongSummary] = []
     public private(set) var artworkFiles: [SongID: URL] = [:]
-    public private(set) var queue = QueueModel()
-    public private(set) var nowPlaying = NowPlaying()
-    public private(set) var lyrics: Lyrics?
+    public internal(set) var queue = QueueModel()
+    public internal(set) var nowPlaying = NowPlaying()
+    public internal(set) var lyrics: Lyrics?
     public private(set) var pitchTrack: PitchTrack? {
         didSet { displayPitch = pitchTrack.map { $0.version >= PitchTrack.currentVersion ? $0.coarse() : $0.simplified() } }
     }
@@ -43,9 +44,9 @@ public final class HostController: HostAPI {
     @ObservationIgnored var scoreFrames = 0
     @ObservationIgnored var pitchTask: Task<Void, Never>?
     @ObservationIgnored var scoreKeeper = ScoreKeeper()
-    public private(set) var lastResult: PerformanceResult?
+    public internal(set) var lastResult: PerformanceResult?
     public private(set) var singers: [Singer] = []
-    public private(set) var session: SessionInfo?
+    public internal(set) var session: SessionInfo?
     public private(set) var preparing: [SongID: Double] = [:]
     public internal(set) var connectedPads: [PadIdentity] = []
     public private(set) var importProgress: (done: Int, total: Int)?
@@ -61,6 +62,9 @@ public final class HostController: HostAPI {
     @ObservationIgnored var processingStartedAt: Date?
     @ObservationIgnored var lastStorageCheck = Date.distantPast
     @ObservationIgnored var songPrefs: [SongID: SongPrefs] = [:]
+    @ObservationIgnored var take: RecordingTake?
+    @ObservationIgnored var sleepAssertion: IOPMAssertionID = 0
+    public internal(set) var isReplaying = false
     @ObservationIgnored var howlSince: Date?
     @ObservationIgnored var howlMidi: Float?
     @ObservationIgnored var duckUntil: Date?
@@ -528,6 +532,8 @@ public final class HostController: HostAPI {
     // MARK: Playback
 
     public func playNext() async {
+        discardTake()
+        isReplaying = false
         finishCurrentPlay(skipped: nowPlaying.state == .playing || nowPlaying.state == .paused)
         playback.stop()
         lyrics = nil
@@ -548,6 +554,7 @@ public final class HostController: HostAPI {
         let stems = await separation.isReady(record)
         let ready = record.readiness == .ready && stems
         lyrics = await lyr.map { $0.shifted(by: Double(record.lyricOffsetMs) / 1000) }
+        nowPlaying.lyricOffsetMs = record.lyricOffsetMs
         if ready || settings.playback.playOriginalWhenNotReady || !modelAvailable {
             await startPrepared()
         } else {
@@ -596,6 +603,7 @@ public final class HostController: HostAPI {
             nowPlaying.positionMs = 0
             nowPlaying.positionAt = .now
             beginPlay(entry)
+            startTake(entry)
         } catch {
             lastError = "Audio output error: \(error.localizedDescription)"
         }
@@ -621,6 +629,7 @@ public final class HostController: HostAPI {
 
     public func restart() {
         guard nowPlaying.entry != nil else { return }
+        discardTake()
         try? playback.play(from: 0)
         nowPlaying.state = .playing
         syncPosition()
@@ -628,12 +637,15 @@ public final class HostController: HostAPI {
     }
 
     public func seek(to seconds: Double) {
+        if take != nil { discardTake() }
         try? playback.seek(to: seconds)
         syncPosition()
         scheduleBroadcast()
     }
 
     public func stopPlayback() {
+        discardTake()
+        isReplaying = false
         finishCurrentPlay(skipped: true)
         playback.stop()
         nowPlaying = NowPlaying(state: .idle, guideVocal: settings.playback.defaultGuideVocal)
@@ -666,6 +678,7 @@ public final class HostController: HostAPI {
     }
 
     func songFinished(skipped: Bool) {
+        if isReplaying { replayFinished(); return }
         let entry = nowPlaying.entry
         let scored = scoreKeeper.result(track: pitchTrack, upTo: playback.duration)
         nowPlaying.state = .finished
@@ -683,6 +696,7 @@ public final class HostController: HostAPI {
                 categories: cats, badges: badges, leaderboard: []
             )
         }
+        finishTake(playID: currentPlay?.id, score: scored?.total)
         finishCurrentPlay(skipped: skipped, score: scored.map { Double($0.total) })
         scheduleBroadcast()
         let hold = max(7, settings.tv.resultSeconds)
@@ -755,8 +769,10 @@ public final class HostController: HostAPI {
         connectedPads = await server?.connectedPads() ?? []
         if preparing.isEmpty { processingStartedAt = nil }
         updateProcessingHold()
+        updateKeepAwake()
         if Date.now.timeIntervalSince(lastStorageCheck) > 300 {
             lastStorageCheck = .now
+            dailyBackup()
             Task { await enforceStorageLimits() }
         }
     }
@@ -764,6 +780,7 @@ public final class HostController: HostAPI {
     // MARK: History
 
     func beginPlay(_ entry: QueueEntry) {
+        guard settings.privacy.keepHistory else { return }
         let sessionID = session?.id
         let guide = playback.guideVocal
         let singerIDs = entry.singers.map(\.id)
@@ -942,13 +959,15 @@ public final class HostController: HostAPI {
 
     public func search(_ q: String, filters: SearchFilters) async throws -> SearchResponse {
         let found = try await library.search(q, filters: filters)
-        let mapped = found.map { summary($0) }
+        let mapped = found.map { summary($0) }.filter { !familyHidden($0) }
         guard settings.services.catalogSearchEnabled, !filters.readyOnly, filters.favoritesOf == nil, !q.isEmpty else {
             return SearchResponse(songs: mapped, total: mapped.count)
         }
         let owned = Set(songs.map { normalizeForMatch($0.title) + "|" + normalizeForMatch(Self.firstArtist($0.artist)) })
         let isrcs = Set(songs.compactMap(\.isrc))
+        let family = settings.privacy.familyMode
         let catalog = await CatalogSearch.search(q).filter { t in
+            !(family && t.explicit == true) &&
             !(t.isrc.map(isrcs.contains) ?? false) && !owned.contains(normalizeForMatch(t.title) + "|" + normalizeForMatch(Self.firstArtist(t.artist)))
         }
         return SearchResponse(songs: mapped, total: mapped.count, catalog: catalog)
@@ -1044,7 +1063,8 @@ public final class HostController: HostAPI {
     public func singers() async -> [Singer] { singers }
 
     public func createSinger(name: String, emoji: String?, pad: PadIdentity) async throws -> Singer {
-        try await addSinger(name: name, emoji: emoji?.isEmpty == true ? nil : emoji, padID: pad.padID)
+        try requireGuestPermission(pad, settings.privacy.guestsCanCreateSingers || singers.contains { $0.name.caseInsensitiveCompare(name.trimmingCharacters(in: .whitespaces)) == .orderedSame }, "Ask the host to add you as a singer.")
+        return try await addSinger(name: name, emoji: emoji?.isEmpty == true ? nil : emoji, padID: pad.padID)
     }
 
     public func stats(_ period: StatsPeriod) async throws -> StatsResponse {
@@ -1094,8 +1114,10 @@ public final class HostController: HostAPI {
             incoming.storage = settings.storage
             incoming.system = settings.system
             incoming.network = settings.network
+            incoming.privacy = settings.privacy
             settings = incoming
         case .request(let r):
+            try requireGuestPermission(pad, settings.privacy.guestsCanRequest, "The host turned off song requests from guests.")
             addRequest(r.track, singerIDs: r.singerIDs)
         case .dismissRequest(let id):
             guard host else { throw QueueError.notAllowed }
@@ -1106,6 +1128,9 @@ public final class HostController: HostAPI {
         case .setTempo(let t):
             guard host else { throw QueueError.notAllowed }
             setTempo(t)
+        case .setLyricOffset(let ms):
+            guard host else { throw QueueError.notAllowed }
+            setLyricOffset(ms)
         case .setMicPreset(let p):
             guard host, MicPreset(rawValue: p) != nil else { throw QueueError.notAllowed }
             settings.playback.micPreset = p

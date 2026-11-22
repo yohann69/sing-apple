@@ -3,6 +3,7 @@ import SingCore
 import SingDesign
 import SingHost
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsPane: View {
     @Bindable var host: HostController
@@ -13,6 +14,8 @@ struct SettingsPane: View {
     @State private var pickingFolder = false
     @State private var languages: [LanguageOption] = []
     @State private var pin = ""
+    @State private var exporting = false
+    @State private var confirmReset = false
 
     var body: some View {
         Form {
@@ -72,6 +75,20 @@ struct SettingsPane: View {
             } header: { Text("Owner") } footer: {
                 Text("With a PIN, host pads must enter it before changing storage, lyrics sources, processing, network or unpairing devices. Five wrong tries lock the pad out for a while.")
             }
+            Section {
+                LabeledContent("Last backup", value: host.lastBackupDate?.formatted(date: .abbreviated, time: .shortened) ?? "Never")
+                HStack {
+                    Button("Back up now") {
+                        let url = host.paths.root.appendingPathComponent("Backups/sing-manual-\(Int(Date.now.timeIntervalSince1970)).sqlite")
+                        try? host.backupDatabase(to: url)
+                    }
+                    Button("Export…") { exporting = true }
+                    Button("Show backups") { NSWorkspace.shared.open(host.paths.root.appendingPathComponent("Backups")) }
+                }
+                Button("Erase everything and start over…", role: .destructive) { confirmReset = true }
+            } header: { Text("Backups") } footer: {
+                Text("A copy of the history, singers, favorites and settings is made every day; the last seven are kept. Erasing keeps your music files.")
+            }
             Section("Vocal separation") {
                 LabeledContent("Model", value: host.modelAvailable ? "HTDemucs (Core ML)" : "Not installed")
                 if !host.modelAvailable {
@@ -86,6 +103,10 @@ struct SettingsPane: View {
             if case .success(let url) = r { host.watchFolder = url }
         }
         .navigationTitle("Settings")
+        .fileExporter(isPresented: $exporting, document: SQLiteDocument(data: (try? host.exportDatabase()) ?? Data()), contentType: .data, defaultFilename: "Sing backup.sqlite") { _ in }
+        .confirmationDialog("Erase history, singers, favorites, recordings, settings and caches?", isPresented: $confirmReset, titleVisibility: .visible) {
+            Button("Erase everything", role: .destructive) { Task { await host.factoryReset() } }
+        } message: { Text("A last backup is saved first. Music files stay where they are and are processed again.") }
         .task {
             languages = await LyricsTranslator.languages().map { LanguageOption(code: $0.code, name: $0.name) }
             outputs = AudioDevices.outputs
@@ -101,4 +122,12 @@ struct SettingsPane: View {
             apiStatus = await SingLyricsAPI(base: url, timeout: 5).healthy() ? "Connected" : "Not reachable, LRCLIB and local lyrics are used instead"
         }
     }
+}
+
+struct SQLiteDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.data] }
+    var data: Data
+    init(data: Data) { self.data = data }
+    init(configuration: ReadConfiguration) throws { data = configuration.file.regularFileContents ?? Data() }
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents: data) }
 }

@@ -107,6 +107,30 @@ public struct SingAPIClient: Sendable {
         let _: [String: Bool] = try await send("v1/owner/pads/\(padID)", method: "DELETE", body: [String: String]())
     }
 
+    public func songSettings(_ id: SongID) async throws -> SongSettings { try await get("v1/songs/\(id)/settings") }
+    @discardableResult
+    public func updateSongSettings(_ id: SongID, _ s: SongSettings) async throws -> SongSettings { try await send("v1/songs/\(id)/settings", method: "PUT", body: s) }
+
+    public func recordings(singer: SingerID?) async throws -> [RecordingInfo] {
+        try await get("v1/recordings", query: singer.map { [URLQueryItem(name: "singer", value: String($0))] } ?? [])
+    }
+    /// Token in the query so AVPlayer can stream it.
+    public func recordingAudioURL(_ id: Int64) -> URL {
+        var c = URLComponents(url: endpoint.baseURL.appendingPathComponent("v1/recordings/\(id)/audio"), resolvingAgainstBaseURL: false)!
+        c.queryItems = [URLQueryItem(name: "token", value: token)]
+        return c.url!
+    }
+    public func shareURL(_ r: RecordingInfo) -> String { endpoint.baseURL.appendingPathComponent("r/\(r.shareToken)").absoluteString }
+    public func keepRecording(_ id: Int64, _ keep: Bool) async throws {
+        let _: [String: Bool] = try await send("v1/recordings/\(id)/\(keep ? "keep" : "unkeep")", method: "POST", body: [String: String]())
+    }
+    public func deleteRecording(_ id: Int64) async throws {
+        let _: [String: Bool] = try await send("v1/recordings/\(id)", method: "DELETE", body: [String: String]())
+    }
+    public func replayRecording(_ id: Int64) async throws {
+        let _: [String: Bool] = try await send("v1/recordings/\(id)/replay", method: "POST", body: [String: String]())
+    }
+
     public func artworkURL(_ id: SongID) -> URL { endpoint.baseURL.appendingPathComponent("v1/songs/\(id)/artwork") }
 
     public func artwork(_ id: SongID) async throws -> Data {

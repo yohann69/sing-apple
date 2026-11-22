@@ -92,6 +92,19 @@ public struct PartySettingsSections: View {
                 Slider(value: $settings.playback.defaultGuideVocal, in: 0...1)
             }
         }
+        Section {
+            Toggle("Record every performance", isOn: $settings.playback.recordPerformances)
+            if settings.playback.recordPerformances {
+                Picker("Keep recordings", selection: $settings.playback.keepRecordingsDays) {
+                    Text("7 days").tag(7.0)
+                    Text("30 days").tag(30.0)
+                    Text("1 year").tag(365.0)
+                    Text("Forever").tag(0.0)
+                }
+            }
+        } header: { Text("Recordings") } footer: {
+            Text("Music and voice are recorded on the Mac only. Singers can listen back on their device and take a QR link home; kept recordings are never deleted automatically.")
+        }
         Section("Theme") {
             Picker("Colors", selection: $settings.theme.preset) {
                 ForEach(SingTheme.presetIDs, id: \.self) { id in

@@ -7,6 +7,20 @@ import SingCore
 struct SongPrefs: Codable, Sendable, Hashable {
     var keyShift = 0
     var tempo = 1.0
+    var hiddenInFamilyMode = false
+
+    init(keyShift: Int = 0, tempo: Double = 1, hiddenInFamilyMode: Bool = false) {
+        self.keyShift = keyShift
+        self.tempo = tempo
+        self.hiddenInFamilyMode = hiddenInFamilyMode
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        keyShift = (try? c.decode(Int.self, forKey: .keyShift)) ?? 0
+        tempo = (try? c.decode(Double.self, forKey: .tempo)) ?? 1
+        hiddenInFamilyMode = (try? c.decode(Bool.self, forKey: .hiddenInFamilyMode)) ?? false
+    }
 }
 
 extension HostController {
@@ -18,9 +32,12 @@ extension HostController {
 
     func rememberSongPrefs() {
         guard let id = nowPlaying.entry?.song.id else { return }
-        let p = SongPrefs(keyShift: playback.keyShift, tempo: playback.tempo)
+        let p = SongPrefs(keyShift: playback.keyShift, tempo: playback.tempo, hiddenInFamilyMode: songPrefs[id]?.hiddenInFamilyMode ?? false)
         songPrefs[id] = p == SongPrefs() ? nil : p
-        let map = Dictionary(uniqueKeysWithValues: songPrefs.map { (String($0.key), $0.value) })
+        saveSongPrefs()
+    }
+
+    func saveSongPrefs() {        let map = Dictionary(uniqueKeysWithValues: songPrefs.map { (String($0.key), $0.value) })
         let json = String(decoding: (try? JSONEncoder().encode(map)) ?? Data("{}".utf8), as: UTF8.self)
         Task { try? await database.writer.write { db in try SettingRecord(key: "songPrefs", json: json).save(db) } }
     }

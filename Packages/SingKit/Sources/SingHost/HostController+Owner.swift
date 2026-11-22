@@ -271,6 +271,7 @@ extension HostController {
 
     /// Over the cap, removes the stems of the songs not played for the longest time; pinned, favorite and queued songs stay.
     func enforceStorageLimits() async {
+        await pruneRecordings()
         let s = settings.storage
         let report = await storageReport()
         if report.lowDisk, !lowDiskWarned {
@@ -345,6 +346,7 @@ extension HostController {
         next.storage = s.storage
         next.system = s.system
         next.network = s.network
+        next.privacy = s.privacy
         settings = next
     }
 }

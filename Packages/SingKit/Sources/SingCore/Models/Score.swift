@@ -27,6 +27,10 @@ public struct PerformanceResult: Codable, Sendable, Hashable {
     public var badges: [String]
     public var leaderboard: [RankedName]
     public var endedAt: Date
+    /// Set once the performance recording is mixed.
+    public var recordingID: Int64?
+    /// A link anyone on the same Wi-Fi can open to listen.
+    public var shareURL: String?
 
     public init(entryID: String, songTitle: String, artist: String, singers: [Singer], total: Int?, grade: String?, title: String, comment: String, categories: [ScoreCategory], badges: [String], leaderboard: [RankedName], endedAt: Date = .now) {
         self.entryID = entryID

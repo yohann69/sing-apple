@@ -110,6 +110,8 @@ public struct NowPlaying: Codable, Sendable, Hashable {
     public var keyShift: Int = 0
     /// Playback speed, 1 is the original tempo.
     public var tempo: Double = 1
+    /// The current song's own lyric timing correction.
+    public var lyricOffsetMs: Int = 0
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -122,6 +124,7 @@ public struct NowPlaying: Codable, Sendable, Hashable {
         nextLine = try c.decodeIfPresent(String.self, forKey: .nextLine)
         keyShift = (try? c.decode(Int.self, forKey: .keyShift)) ?? 0
         tempo = (try? c.decode(Double.self, forKey: .tempo)) ?? 1
+        lyricOffsetMs = (try? c.decode(Int.self, forKey: .lyricOffsetMs)) ?? 0
     }
 
     public init(entry: QueueEntry? = nil, state: PlaybackState = .idle, positionMs: Int = 0, positionAt: Date = .now, guideVocal: Double = 0, currentLine: String? = nil, nextLine: String? = nil) {

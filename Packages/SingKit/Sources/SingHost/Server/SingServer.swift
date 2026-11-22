@@ -35,6 +35,16 @@ public protocol HostAPI: AnyObject, Sendable {
     func revokePad(_ id: String) async
     func applyOwnerSettings(_ s: SingSettings) async
     func setPinned(_ id: SongID, _ pinned: Bool) async
+    func recordings(singerID: SingerID?) async -> [RecordingInfo]
+    func recordingAudio(id: Int64) async -> Data?
+    func sharedRecording(token: String) async -> (info: RecordingInfo, audio: URL)?
+    func keepRecording(_ id: Int64, _ keep: Bool) async
+    func deleteRecording(_ id: Int64) async
+    func replay(_ id: Int64) async throws
+    func canSeeStats(_ pad: PadIdentity) async -> Bool
+    func songSettings(_ id: SongID) async -> SongSettings?
+    func updateSongSettings(_ id: SongID, _ s: SongSettings) async
+    func exportDatabase() async throws -> Data
 }
 
 public struct NewSinger: Codable, Sendable {
@@ -175,12 +185,31 @@ public final class SingServer: Sendable {
         HTTPResponse(status: status, body: (try? SingProtocol.encoder().encode(value)) ?? Data())
     }
 
+    /// Serves audio with byte ranges, which Safari and AVPlayer need to play and seek.
+    static func audio(_ data: Data, _ req: HTTPRequest) -> HTTPResponse {
+        let type = "audio/mp4"
+        guard let range = req.headers["range"], range.hasPrefix("bytes=") else {
+            return HTTPResponse(contentType: type, body: data, extraHeaders: ["Accept-Ranges": "bytes"])
+        }
+        let spec = range.dropFirst(6).split(separator: "-", omittingEmptySubsequences: false)
+        let start = Int(spec.first ?? "") ?? 0
+        let end = min(data.count - 1, spec.count > 1 ? Int(spec[1]) ?? data.count - 1 : data.count - 1)
+        guard start <= end, start < data.count else { return HTTPResponse(status: 416, contentType: type, body: Data()) }
+        return HTTPResponse(status: 206, contentType: type, body: data.subdata(in: start..<(end + 1)),
+                            extraHeaders: ["Accept-Ranges": "bytes", "Content-Range": "bytes \(start)-\(end)/\(data.count)"])
+    }
+
     static func error(_ status: Int, _ code: String, _ message: String) -> HTTPResponse {
         json(ErrorBody(code: code, message: message), status: status)
     }
 
     static func route(_ req: HTTPRequest, api: any HostAPI) async -> HTTPResponse {
         let parts = req.path.split(separator: "/").map(String.init)
+        if req.method == "GET", parts.first == "r", parts.count >= 2 {
+            guard let shared = await api.sharedRecording(token: parts[1]) else { return HTTPResponse(status: 404, contentType: "text/plain", body: Data("This recording is gone.".utf8)) }
+            if parts.count == 3, parts[2] == "audio", let data = try? Data(contentsOf: shared.audio) { return audio(data, req) }
+            return WebRemote.sharePage(shared.info, audioPath: "/r/\(parts[1])/audio")
+        }
         if req.method == "GET", parts.first != "v1" { return WebRemote.page(req.path) }
         guard parts.first == "v1" else { return error(404, "notFound", "Unknown path") }
         let rest = Array(parts.dropFirst())
@@ -196,6 +225,7 @@ public final class SingServer: Sendable {
             guard let token = req.bearer, let pad = await api.authenticate(token: token) else {
                 return error(401, "unauthorized", "This device is no longer paired. Pair it again.")
             }
+            let statsAllowed = await api.canSeeStats(pad)
             switch (req.method, rest) {
             case ("GET", ["state"]):
                 return json(await api.liveState())
@@ -216,6 +246,16 @@ public final class SingServer: Sendable {
             case ("POST", ["singers"]):
                 let body = try SingProtocol.decoder().decode(NewSinger.self, from: req.body)
                 return json(try await api.createSinger(name: body.name, emoji: body.emoji, pad: pad))
+            case ("GET", let p) where p.first == "stats" && !statsAllowed:
+                return error(403, "notAllowed", "The host keeps stats private tonight.")
+            case ("GET", let p) where p.count == 3 && p[0] == "songs" && p[2] == "settings":
+                guard pad.role == .host, let id = Int64(p[1]), let s = await api.songSettings(id) else { return error(404, "notFound", "Unknown song") }
+                return json(s)
+            case ("PUT", let p) where p.count == 3 && p[0] == "songs" && p[2] == "settings":
+                guard pad.role == .host, let id = Int64(p[1]) else { return error(403, "rejected", "Only the host can do that.") }
+                let s = try SingProtocol.decoder().decode(SongSettings.self, from: req.body)
+                await api.updateSongSettings(id, s)
+                return json(s)
             case ("GET", ["stats"]):
                 return json(try await api.stats(req.query["period"].flatMap(StatsPeriod.init(rawValue:)) ?? .tonight))
             case ("GET", let p) where p.count == 3 && p[0] == "stats" && p[1] == "singers":
@@ -230,6 +270,25 @@ public final class SingServer: Sendable {
                 let r = try SingProtocol.decoder().decode(SongRating.self, from: req.body)
                 try await api.rate(r)
                 return json(r)
+            case ("GET", ["recordings"]):
+                let singer = req.query["singer"].flatMap { Int64($0) }
+                guard singer != nil || pad.role == .host else { return error(400, "badRequest", "singer is required") }
+                return json(await api.recordings(singerID: singer))
+            case ("GET", let p) where p.count == 3 && p[0] == "recordings" && p[2] == "audio":
+                guard let id = Int64(p[1]), let data = await api.recordingAudio(id: id) else { return error(404, "notFound", "No recording") }
+                return audio(data, req)
+            case ("POST", let p) where p.count == 3 && p[0] == "recordings" && (p[2] == "keep" || p[2] == "unkeep"):
+                guard let id = Int64(p[1]) else { return error(400, "badRequest", "Bad id") }
+                await api.keepRecording(id, p[2] == "keep")
+                return json(["ok": true])
+            case ("POST", let p) where p.count == 3 && p[0] == "recordings" && p[2] == "replay":
+                guard pad.role == .host, let id = Int64(p[1]) else { return error(403, "rejected", "Only the host can do that.") }
+                try await api.replay(id)
+                return json(["ok": true])
+            case ("DELETE", let p) where p.count == 2 && p[0] == "recordings":
+                guard pad.role == .host, let id = Int64(p[1]) else { return error(403, "rejected", "Only the host can do that.") }
+                await api.deleteRecording(id)
+                return json(["ok": true])
             case ("POST", ["owner", "unlock"]):
                 let body = try SingProtocol.decoder().decode(OwnerUnlock.self, from: req.body)
                 return json(try await api.unlockOwner(pin: body.pin, pad: pad))
@@ -256,6 +315,9 @@ extension SingServer {
         switch (req.method, p) {
         case ("GET", []):
             return json(await api.ownerOverview())
+        case ("GET", ["backup"]):
+            return HTTPResponse(contentType: "application/vnd.sqlite3", body: try await api.exportDatabase(),
+                                extraHeaders: ["Content-Disposition": "attachment; filename=\"sing-backup.sqlite\""])
         case ("GET", ["storage"]):
             return json(await api.storageReport())
         case ("POST", ["storage", "clear"]):
@@ -279,6 +341,26 @@ extension SingServer {
 /// The web remote: one page any phone opens from the TV's QR code, no app needed.
 enum WebRemote {
     static let html: Data? = Bundle.module.url(forResource: "index", withExtension: "html", subdirectory: "web").flatMap { try? Data(contentsOf: $0) }
+
+    static func esc(_ s: String) -> String {
+        s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
+    }
+
+    /// The page a shared QR code opens: one song, one player, nothing else from the party.
+    static func sharePage(_ r: RecordingInfo, audioPath: String) -> HTTPResponse {
+        let who = r.singers.map(\.name).joined(separator: " & ")
+        let html = ##"""
+        <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>\##(esc(r.songTitle)) · Sing!</title>
+        <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 20% 10%,#5a2410,#0F0A08 60%);color:#FFF4EC;font:17px -apple-system,system-ui,sans-serif}
+        main{width:min(92vw,440px);padding:28px;border-radius:28px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(30px)}
+        h1{margin:0 0 4px;font-size:26px}p{margin:0 0 18px;opacity:.7}audio{width:100%}a{color:#F26B1D}small{display:block;margin-top:18px;opacity:.5}</style></head>
+        <body><main><h1>\##(esc(r.songTitle))</h1><p>\##(esc(r.artist))\##(who.isEmpty ? "" : " · sung by " + esc(who))\##(r.score.map { " · \($0) pts" } ?? "")</p>
+        <audio controls preload="metadata" src="\##(audioPath)"></audio><p style="margin-top:14px"><a href="\##(audioPath)" download="\##(esc(r.songTitle)).m4a">Download</a></p>
+        <small>Shared from Sing! on this Wi-Fi. The link works while the Mac is on.</small></main></body></html>
+        """##
+        return HTTPResponse(contentType: "text/html; charset=utf-8", body: Data(html.utf8))
+    }
 
     static func page(_ path: String) -> HTTPResponse {
         if path == "/manifest.webmanifest" {

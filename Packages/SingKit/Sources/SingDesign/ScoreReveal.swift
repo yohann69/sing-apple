@@ -26,6 +26,19 @@ struct ScoreRevealStage: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if let url = result.shareURL {
+                    HStack(spacing: 16 * scale) {
+                        VStack(alignment: .trailing, spacing: 4 * scale) {
+                            Text("Take your performance home").font(.system(size: 24 * scale, weight: .semibold))
+                            Text("Scan on the same Wi-Fi").font(.system(size: 19 * scale)).opacity(0.7)
+                        }
+                        QRCodeView(url).padding(10 * scale).background(.white, in: RoundedRectangle(cornerRadius: 16 * scale)).frame(width: 150 * scale, height: 150 * scale)
+                    }
+                    .foregroundStyle(theme.text)
+                    .padding(40 * scale)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .opacity(appear(elapsed, at: 1.5))
+                }
             }
         }
     }

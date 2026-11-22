@@ -38,6 +38,28 @@ public final class PlaybackEngine {
 
     private func applyVolume() { stemMixer.outputVolume = Float(volume * normalization) }
 
+    private var recorder: TapRecorder?
+
+    /// Records the music as heard (after key and tempo) until `stopRecording`.
+    func startRecording(to url: URL) {
+        stopRecording()
+        let format = timePitch.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, let rec = try? TapRecorder(url: url, format: format) else { return }
+        recorder = rec
+        let node = timePitch
+        try? objc {
+            node.removeTap(onBus: 0)
+            node.installTap(onBus: 0, bufferSize: 4096, format: format) { buf, _ in rec.write(buf) }
+        }
+    }
+
+    func stopRecording() {
+        guard let rec = recorder else { return }
+        timePitch.removeTap(onBus: 0)
+        rec.close()
+        recorder = nil
+    }
+
     public init() {
         engine.attach(instrumental)
         engine.attach(vocals)
@@ -198,6 +220,30 @@ public final class MicEngine {
     private var configured = false
     public private(set) var isRunning = false
     public var level: Float { meter.value }
+    private var recorder: TapRecorder?
+
+    /// The voice with its effects, as the room hears it.
+    func startRecording(to url: URL) {
+        stopRecording()
+        guard isRunning else { return }
+        let format = limiter.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, let rec = try? TapRecorder(url: url, format: format) else { return }
+        recorder = rec
+        let node = limiter
+        try? objc {
+            node.removeTap(onBus: 0)
+            node.installTap(onBus: 0, bufferSize: 4096, format: format) { buf, _ in rec.write(buf) }
+        }
+    }
+
+    func stopRecording() {
+        guard let rec = recorder else { return }
+        limiter.removeTap(onBus: 0)
+        rec.close()
+        recorder = nil
+    }
+
+    var inputLatency: TimeInterval { engine.inputNode.presentationLatency }
     /// Loudest sample since the mic started; exactly zero means macOS is feeding silence (access blocked).
     public var peakSinceStart: Float { meter.peak }
     public private(set) var deviceName: String?

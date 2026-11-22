@@ -31,6 +31,7 @@ public struct OwnerSettingsSections: View {
         } header: { Text("Processing") } footer: {
             Text("Songs in the queue are always processed right away.")
         }
+        PrivacySettingsSection(privacy: $settings.privacy)
         Section {
             TextField("Name on the network", text: $settings.network.bonjourName, prompt: Text("This Mac's name"))
             Stepper(value: $settings.network.maxPads, in: 0...50) {
@@ -160,6 +161,59 @@ public struct PadListSection: View {
             }
         } header: { Text("Paired devices") } footer: {
             Text("Unpairing disconnects the device; it needs a code to come back.")
+        }
+    }
+}
+
+public struct PrivacySettingsSection: View {
+    @Binding var privacy: PrivacySettings
+
+    public init(privacy: Binding<PrivacySettings>) { _privacy = privacy }
+
+    public var body: some View {
+        Section {
+            Toggle("Family mode", isOn: $privacy.familyMode)
+            Toggle("Save history and stats", isOn: $privacy.keepHistory)
+            Toggle("Guests can see stats", isOn: $privacy.guestsSeeStats)
+            Toggle("Guests can request songs", isOn: $privacy.guestsCanRequest)
+            Toggle("Guests can add themselves as singers", isOn: $privacy.guestsCanCreateSingers)
+        } header: { Text("Privacy") } footer: {
+            Text("Family mode hides explicit songs from the catalog and songs you mark as not for kids. With history off, nothing about tonight is saved or recorded.")
+        }
+    }
+}
+
+/// Timing, mix, key and family visibility for one song.
+public struct SongSettingsForm: View {
+    @Binding var settings: SongSettings
+
+    public init(settings: Binding<SongSettings>) { _settings = settings }
+
+    public var body: some View {
+        Section("Lyrics") {
+            Stepper(value: $settings.lyricOffsetMs, in: -5000...5000, step: 50) {
+                LabeledContent("Lyric timing", value: settings.lyricOffsetMs == 0 ? "As found" : "\(settings.lyricOffsetMs > 0 ? "+" : "")\(settings.lyricOffsetMs) ms")
+            }
+            Text("Positive values show the words later.").font(.caption).foregroundStyle(.secondary)
+        }
+        Section("Mix") {
+            Toggle("Own guide vocal level", isOn: Binding(get: { settings.defaultGuideVocal != nil }, set: { settings.defaultGuideVocal = $0 ? 0.2 : nil }))
+            if let g = settings.defaultGuideVocal {
+                VStack(alignment: .leading) {
+                    Text("Guide vocal: \(Int(g * 100))%")
+                    Slider(value: Binding(get: { g }, set: { settings.defaultGuideVocal = $0 }), in: 0...1)
+                }
+            }
+            Stepper(value: $settings.keyShift, in: -6...6) {
+                LabeledContent("Key", value: settings.keyShift == 0 ? "Original" : "\(settings.keyShift > 0 ? "+" : "")\(settings.keyShift)")
+            }
+            Stepper(value: $settings.tempo, in: 0.75...1.25, step: 0.05) {
+                LabeledContent("Tempo", value: "\(Int((settings.tempo * 100).rounded()))%")
+            }
+        }
+        Section {
+            Toggle("Hide in family mode", isOn: $settings.hiddenInFamilyMode)
+            Toggle("Keep stems (never auto-delete)", isOn: $settings.pinned)
         }
     }
 }

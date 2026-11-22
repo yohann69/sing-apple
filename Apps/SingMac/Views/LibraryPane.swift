@@ -13,10 +13,13 @@ struct LibraryPane: View {
     @State private var importing = false
     @State private var dropTargeted = false
     @State private var queueFor: SongSummary?
+    @State private var editing: SongSummary?
+    @State private var syncing: SongSummary?
+    @State private var genre = ""
 
     private var shown: [SongSummary] {
-        guard let results, !query.isEmpty else { return host.songs }
-        return results.compactMap { r in host.songs.first { $0.id == r.id } ?? r }
+        let base = (results.flatMap { r in query.isEmpty ? nil : r.compactMap { x in host.songs.first { $0.id == x.id } ?? x } }) ?? host.songs
+        return genre.isEmpty ? base : base.filter { $0.genre == genre || $0.language == genre }
     }
 
     var body: some View {
@@ -44,6 +47,8 @@ struct LibraryPane: View {
                 Button("Queue…") { queueFor = song }
                 Button("Play Next") { Task { try? await host.enqueue(songID: id, singerIDs: [], playNext: true, by: nil) } }
                 Divider()
+                Button("Song Settings…") { editing = song }
+                Button("Edit Lyric Timing…") { syncing = song }
                 Button("Find Lyrics Again (providers, then AI timing)") { Task { await host.refreshLyrics(id, force: true) } }
                 Button("Keep Stems (never auto-delete)") { Task { await host.setPinned(id, true) } }
                 Button("Allow Auto-Delete of Stems") { Task { await host.setPinned(id, false) } }
@@ -99,6 +104,17 @@ struct LibraryPane: View {
         .toolbar {
             ToolbarItem {
                 Button { importing = true } label: { Label("Add Music", systemImage: "plus") }
+            }
+        }
+        .sheet(item: $editing) { SongSettingsSheet(host: host, song: $0) }
+        .sheet(item: $syncing) { s in NavigationStack { SyncEditorView(host: host, song: s) } }
+        .toolbar {
+            Picker("Filter", selection: $genre) {
+                Text("All songs").tag("")
+                let genres = Set(host.songs.compactMap(\.genre)).sorted()
+                if !genres.isEmpty { Section("Genre") { ForEach(genres, id: \.self) { Text($0).tag($0) } } }
+                let langs = Set(host.songs.compactMap(\.language)).sorted()
+                if !langs.isEmpty { Section("Language") { ForEach(langs, id: \.self) { Text(Locale.current.localizedString(forLanguageCode: $0) ?? $0).tag($0) } } }
             }
         }
         .sheet(item: $queueFor) { song in

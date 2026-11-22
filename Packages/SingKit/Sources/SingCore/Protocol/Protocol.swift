@@ -240,6 +240,8 @@ public enum ClientMessage: Sendable {
     case setKey(Int)
     case setTempo(Double)
     case setMicPreset(String)
+    /// Moves the current song's lyrics earlier (negative) or later, and remembers it for the song.
+    case setLyricOffset(ms: Int)
     case ping
 
     public struct Enqueue: Codable, Sendable { public var songID: SongID; public var singerIDs: [SingerID]; public var playNext: Bool
@@ -255,6 +257,7 @@ public enum ClientMessage: Sendable {
     private struct Command: Codable { var command: TransportCommand }
     private struct Semitones: Codable { var semitones: Int }
     private struct Preset: Codable { var preset: String }
+    private struct Offset: Codable { var ms: Int }
 }
 
 extension ClientMessage: Codable {
@@ -276,6 +279,7 @@ extension ClientMessage: Codable {
         case "setKey": self = .setKey(try c.decode(Semitones.self, forKey: .data).semitones)
         case "setTempo": self = .setTempo(try c.decode(Value.self, forKey: .data).value)
         case "setMicPreset": self = .setMicPreset(try c.decode(Preset.self, forKey: .data).preset)
+        case "setLyricOffset": self = .setLyricOffset(ms: try c.decode(Offset.self, forKey: .data).ms)
         case "ping": self = .ping
         case let other: throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "unknown type \(other)")
         }
@@ -297,6 +301,7 @@ extension ClientMessage: Codable {
         case .setKey(let v): try c.encode("setKey", forKey: .type); try c.encode(Semitones(semitones: v), forKey: .data)
         case .setTempo(let v): try c.encode("setTempo", forKey: .type); try c.encode(Value(value: v), forKey: .data)
         case .setMicPreset(let v): try c.encode("setMicPreset", forKey: .type); try c.encode(Preset(preset: v), forKey: .data)
+        case .setLyricOffset(let v): try c.encode("setLyricOffset", forKey: .type); try c.encode(Offset(ms: v), forKey: .data)
         case .ping: try c.encode("ping", forKey: .type)
         }
     }

@@ -339,6 +339,12 @@ struct ResultCard: View {
                 .padding(.top, 4)
             }
             Spacer(minLength: 0)
+            if let url = result.shareURL {
+                VStack(spacing: 6) {
+                    QRCodeView(url).padding(8).background(.white, in: RoundedRectangle(cornerRadius: 12)).frame(width: 110, height: 110)
+                    Text("Take it home").font(.caption).opacity(0.75)
+                }
+            }
         }
         .padding(20)
         .glassEffect(.regular.tint((result.singers.first?.color ?? .orange).opacity(0.25)), in: RoundedRectangle(cornerRadius: 28))
@@ -363,6 +369,9 @@ struct MixerSheet: View {
                     let np = model.state.nowPlaying
                     Stepper(value: Binding(get: { np.keyShift }, set: { model.send(.setKey($0)) }), in: -6...6) {
                         LabeledContent { Text(np.keyShift == 0 ? "Original" : "\(np.keyShift > 0 ? "+" : "")\(np.keyShift)").monospacedDigit() } label: { Label("Key", systemImage: "music.note") }
+                    }
+                    Stepper(value: Binding(get: { np.lyricOffsetMs }, set: { model.send(.setLyricOffset(ms: $0)) }), in: -5000...5000, step: 100) {
+                        LabeledContent { Text(np.lyricOffsetMs == 0 ? "As found" : "\(np.lyricOffsetMs > 0 ? "+" : "")\(np.lyricOffsetMs) ms").monospacedDigit() } label: { Label("Lyric timing", systemImage: "text.badge.checkmark") }
                     }
                     Stepper(value: Binding(get: { np.tempo }, set: { model.send(.setTempo($0)) }), in: 0.75...1.25, step: 0.05) {
                         LabeledContent { Text("\(Int((np.tempo * 100).rounded()))%").monospacedDigit() } label: { Label("Tempo", systemImage: "metronome") }

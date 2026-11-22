@@ -10,6 +10,7 @@ public struct SingSettings: Codable, Sendable, Hashable {
     public var storage = StorageSettings()
     public var system = SystemSettings()
     public var network = NetworkSettings()
+    public var privacy = PrivacySettings()
 
     public init() {}
 
@@ -23,6 +24,7 @@ public struct SingSettings: Codable, Sendable, Hashable {
         storage = (try? c.decode(StorageSettings.self, forKey: .storage)) ?? StorageSettings()
         system = (try? c.decode(SystemSettings.self, forKey: .system)) ?? SystemSettings()
         network = (try? c.decode(NetworkSettings.self, forKey: .network)) ?? NetworkSettings()
+        privacy = (try? c.decode(PrivacySettings.self, forKey: .privacy)) ?? PrivacySettings()
     }
 }
 
@@ -104,6 +106,10 @@ public struct PlaybackSettings: Codable, Sendable, Hashable {
     public var feedbackProtection = true
     /// Evens out loudness between songs.
     public var normalizeLoudness = true
+    /// Record each performance (music plus voice) for replay and sharing.
+    public var recordPerformances = false
+    /// Recordings older than this are deleted unless kept. 0 keeps them forever.
+    public var keepRecordingsDays: Double = 30
 
     public init() {}
 
@@ -123,6 +129,8 @@ public struct PlaybackSettings: Codable, Sendable, Hashable {
         micEcho = v(.micEcho, d.micEcho)
         feedbackProtection = v(.feedbackProtection, d.feedbackProtection)
         normalizeLoudness = v(.normalizeLoudness, d.normalizeLoudness)
+        recordPerformances = v(.recordPerformances, d.recordPerformances)
+        keepRecordingsDays = v(.keepRecordingsDays, d.keepRecordingsDays)
     }
 }
 
@@ -254,5 +262,47 @@ public struct NetworkSettings: Codable, Sendable, Hashable {
         bonjourName = v(.bonjourName, d.bonjourName)
         port = v(.port, d.port)
         maxPads = v(.maxPads, d.maxPads)
+    }
+}
+
+public struct PrivacySettings: Codable, Sendable, Hashable {
+    /// Hides explicit songs from search and the catalog, and songs the host marked as not for kids.
+    public var familyMode = false
+    /// Save plays, scores and stats. Off means tonight leaves no trace (and nothing is recorded).
+    public var keepHistory = true
+    public var guestsSeeStats = true
+    public var guestsCanRequest = true
+    public var guestsCanCreateSingers = true
+
+    public init() {}
+
+    public init(from decoder: Decoder) throws {
+        let d = PrivacySettings()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func v<T: Decodable>(_ k: CodingKeys, _ fallback: T) -> T { (try? c.decode(T.self, forKey: k)) ?? fallback }
+        familyMode = v(.familyMode, d.familyMode)
+        keepHistory = v(.keepHistory, d.keepHistory)
+        guestsSeeStats = v(.guestsSeeStats, d.guestsSeeStats)
+        guestsCanRequest = v(.guestsCanRequest, d.guestsCanRequest)
+        guestsCanCreateSingers = v(.guestsCanCreateSingers, d.guestsCanCreateSingers)
+    }
+}
+
+/// Per-song choices the host can edit: timing, mix, key, tempo and family visibility.
+public struct SongSettings: Codable, Sendable, Hashable {
+    public var lyricOffsetMs: Int
+    public var defaultGuideVocal: Double?
+    public var keyShift: Int
+    public var tempo: Double
+    public var hiddenInFamilyMode: Bool
+    public var pinned: Bool
+
+    public init(lyricOffsetMs: Int = 0, defaultGuideVocal: Double? = nil, keyShift: Int = 0, tempo: Double = 1, hiddenInFamilyMode: Bool = false, pinned: Bool = false) {
+        self.lyricOffsetMs = lyricOffsetMs
+        self.defaultGuideVocal = defaultGuideVocal
+        self.keyShift = keyShift
+        self.tempo = tempo
+        self.hiddenInFamilyMode = hiddenInFamilyMode
+        self.pinned = pinned
     }
 }

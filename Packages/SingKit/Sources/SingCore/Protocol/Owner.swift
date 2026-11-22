@@ -157,3 +157,29 @@ public struct OwnerOverview: Codable, Sendable {
         self.processingPaused = processingPaused
     }
 }
+
+public struct RecordingInfo: Codable, Sendable, Hashable, Identifiable {
+    public var id: Int64
+    public var songID: SongID?
+    public var songTitle: String
+    public var artist: String
+    public var singers: [Singer]
+    public var recordedAt: Date
+    public var durationMs: Int
+    public var score: Int?
+    public var kept: Bool
+    public var shareToken: String
+
+    public init(id: Int64, songID: SongID?, songTitle: String, artist: String, singers: [Singer], recordedAt: Date, durationMs: Int, score: Int?, kept: Bool, shareToken: String) {
+        self.id = id
+        self.songID = songID
+        self.songTitle = songTitle
+        self.artist = artist
+        self.singers = singers
+        self.recordedAt = recordedAt
+        self.durationMs = durationMs
+        self.score = score
+        self.kept = kept
+        self.shareToken = shareToken
+    }
+}

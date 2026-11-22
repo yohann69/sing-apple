@@ -233,6 +233,7 @@ function meView() {
   <h2>Translate the lyrics</h2><div class="card"><select id="lang" style="width:100%;min-height:48px;border-radius:999px;background:transparent;color:var(--text);border:1px solid var(--stroke);padding:0 14px;font:inherit">
     <option value="">Off</option>${languages.map(l => `<option value="${esc(l.code)}" ${l.code === store.lang ? "selected" : ""}>${esc(l.name)}</option>`).join("")}</select>
     <p class="sub" style="margin-bottom:0">Translated on the Mac with on-device AI, shown under each line on your phone.</p></div>
+  <h2>My recordings</h2><div class="card" id="recs"><p class="sub" style="margin:0">${me ? "Loading…" : "Pick your name to see your recordings."}</p></div>
   <div style="height:16px"></div><button class="btn ghost" id="leave">Leave this party</button>`;
 }
 
@@ -248,6 +249,14 @@ function bind() {
   };
   const langSel = $("#lang"); if (langSel) langSel.onchange = () => { store.lang = langSel.value; lyricsFor = null; loadLyrics(); toast(langSel.value ? "Lyrics will be translated" : "Translation off") };
   if (tab === "me" && !languages.length && store.token) api("/v1/translation/languages").then(l => { languages = l; if (tab === "me") paint() }).catch(() => {});
+  const recs = $("#recs");
+  if (recs && store.singer && !recs._loaded) {
+    recs._loaded = true;
+    api("/v1/recordings?singer=" + store.singer).then(list => {
+      recs.innerHTML = list.length ? list.slice(0, 20).map(r => `<div style="padding:8px 0"><div class="title">${esc(r.songTitle)}</div><div class="meta">${new Date(r.recordedAt).toLocaleDateString()}${r.score != null ? " · " + r.score + " pts" : ""} · <a style="color:var(--accent2)" href="/r/${esc(r.shareToken)}">Share link</a></div><audio controls preload="none" style="width:100%;margin-top:6px" src="/r/${esc(r.shareToken)}/audio"></audio></div>`).join("")
+        : `<p class="sub" style="margin:0">Nothing recorded yet. The host can turn recording on.</p>`;
+    }).catch(() => { recs.innerHTML = `<p class="sub" style="margin:0">Could not load recordings.</p>` });
+  }
   const leave = $("#leave"); if (leave) leave.onclick = () => { store.token = null; ws?.close(); state = null; render() };
   const favs = $("#favs");
   if (favs) favs.onclick = async () => {

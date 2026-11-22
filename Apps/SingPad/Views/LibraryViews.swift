@@ -157,7 +157,12 @@ struct SongSheet: View {
                 }
                 .padding(24)
             }
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+                if model.isHost {
+                    ToolbarItem(placement: .primaryAction) { NavigationLink { PadSongSettings(song: song) } label: { Label("Song settings", systemImage: "slider.horizontal.3") } }
+                }
+            }
         }
         .presentationDetents([.large])
         .onAppear { if let me = model.currentSingerID { chosen = [me] } }
@@ -267,6 +272,7 @@ struct StatsView: View {
             .padding(20)
         }
         .navigationTitle("Stats")
+        .toolbar { NavigationLink { PadRecordingsView() } label: { Label("Recordings", systemImage: "waveform") } }
         .task(id: period) { data = try? await model.client?.stats(period) }
         .task(id: model.currentSingerID) {
             if let id = model.currentSingerID { mine = try? await model.client?.singerStats(id) }
@@ -476,5 +482,61 @@ struct OwnerAreaView: View {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+}
+
+struct PadRecordingsView: View {
+    @Environment(PadModel.self) private var model
+    @State private var items: [RecordingInfo] = []
+    @State private var everyone = false
+
+    var body: some View {
+        List {
+            if model.isHost {
+                Picker("Show", selection: $everyone) {
+                    Text("Mine").tag(false)
+                    Text("Everyone").tag(true)
+                }
+                .pickerStyle(.segmented)
+            }
+            if let client = model.client {
+                RecordingsList(
+                    recordings: items, audioURL: { client.recordingAudioURL($0.id) }, shareURL: { client.shareURL($0) }, canManage: model.isHost,
+                    onKeep: { r in Task { try? await client.keepRecording(r.id, !r.kept); await load() } },
+                    onDelete: { r in Task { try? await client.deleteRecording(r.id); await load() } },
+                    onReplay: { r in Task { do { try await client.replayRecording(r.id) } catch { model.toast = error.localizedDescription } } }
+                )
+            }
+        }
+        .navigationTitle("Recordings")
+        .task(id: everyone) { await load() }
+        .refreshable { await load() }
+    }
+
+    private func load() async {
+        let singer = everyone ? nil : model.currentSingerID
+        guard singer != nil || model.isHost else { items = []; return }
+        items = (try? await model.client?.recordings(singer: singer)) ?? []
+    }
+}
+
+struct PadSongSettings: View {
+    var song: SongSummary
+    @Environment(PadModel.self) private var model
+    @State private var settings: SongSettings?
+
+    var body: some View {
+        Form {
+            if settings != nil {
+                SongSettingsForm(settings: Binding(get: { settings ?? SongSettings() }, set: { v in
+                    settings = v
+                    Task { try? await model.client?.updateSongSettings(song.id, v) }
+                }))
+            } else {
+                ProgressView()
+            }
+        }
+        .navigationTitle(song.title)
+        .task { settings = try? await model.client?.songSettings(song.id) }
     }
 }
