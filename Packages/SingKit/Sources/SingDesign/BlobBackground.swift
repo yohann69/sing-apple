@@ -6,8 +6,11 @@ public struct BlobBackground: View {
     var base: Color
     var period: Double
     var dim: Double
+    /// Freeze the motion (nothing playing, or the window is in the background) so it costs nothing.
+    var still: Bool
 
-    public init(colors: [Color], base: Color = .black, period: Double = 28, dim: Double = 0.3) {
+    public init(colors: [Color], base: Color = .black, period: Double = 28, dim: Double = 0.3, still: Bool = false) {
+        self.still = still
         self.colors = colors.isEmpty ? [.orange, .red, .yellow, .purple] : colors
         self.base = base
         self.period = max(4, period)
@@ -26,7 +29,7 @@ public struct BlobBackground: View {
 
     public var body: some View {
         // Drawn at a quarter of the size and scaled up: the blur hides the difference and the GPU does 16 times less work.
-        TimelineView(.animation(minimumInterval: 1 / 24, paused: reduceMotion)) { context in
+        TimelineView(.animation(minimumInterval: 1 / 24, paused: reduceMotion || still)) { context in
             let t = reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate / period * 2 * .pi
             GeometryReader { outer in
               let full = outer.size

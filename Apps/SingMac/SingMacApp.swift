@@ -47,6 +47,10 @@ final class AppModel {
         do {
             let h = try HostController()
             host = h
+            // A normal quit is not a crash: do not resume the song on the next launch.
+            NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { h.clearResumePoint() }
+            }
             await h.start()
             if UserDefaults.standard.bool(forKey: "tvVisible") || NSScreen.screens.count > 1 { showTV() }
             if h.songs.isEmpty, let samples = ProcessInfo.processInfo.environment["SING_SAMPLES"] {

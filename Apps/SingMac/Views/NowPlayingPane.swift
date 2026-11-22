@@ -12,7 +12,7 @@ struct NowPlayingPane: View {
     var body: some View {
         let np = host.nowPlaying
         ZStack {
-            BlobBackground(colors: (np.entry?.song.paletteColors ?? theme.blobs).vivid(with: theme), base: theme.background, period: 40, dim: 0.45)
+            BlobBackground(colors: (np.entry?.song.paletteColors ?? theme.blobs).vivid(with: theme), base: theme.background, period: 40, dim: 0.45, still: np.state != .playing || !(NSApp.isActive))
             ScrollView {
                 VStack(spacing: 28) {
                     header(np)
@@ -81,7 +81,7 @@ struct NowPlayingPane: View {
     }
 
     private var lyricsPreview: some View {
-        TimelineView(.animation) { _ in
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: host.nowPlaying.state != .playing)) { _ in
             let t = host.lyricTime
             VStack(alignment: .leading, spacing: 12) {
                 if let lyrics = host.lyrics {
@@ -109,7 +109,7 @@ struct NowPlayingPane: View {
     }
 
     private var progress: some View {
-        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+        TimelineView(.animation(minimumInterval: 0.25, paused: host.nowPlaying.state != .playing)) { _ in
             let pos = max(0, host.lyricTime - host.lyricOffset)
             let dur = max(host.duration, 1)
             VStack(spacing: 6) {
@@ -158,7 +158,7 @@ struct NowPlayingPane: View {
             HStack {
                 Toggle("Microphone", isOn: $host.settings.playback.micEnabled)
                 Spacer()
-                MicMeter(level: host.micLevel)
+                MicMeter(level: { host.micLevel }, active: host.micRunning)
             }
             if let msg = host.micStateText {
                 VStack(alignment: .leading, spacing: 8) {
@@ -229,20 +229,72 @@ struct LabeledSlider: View {
     }
 }
 
-struct MicMeter: View {
-    var level: Float
+/// Mic level bars drawn with plain layers: updating them never re-lays out the SwiftUI window.
+struct MicMeter: NSViewRepresentable {
+    var level: () -> Float
+    var active: Bool
 
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 20)) { _ in
-            HStack(spacing: 2) {
-                ForEach(0..<12) { i in
-                    let lit = Float(i) / 12 < min(1, level * 1.6)
-                    RoundedRectangle(cornerRadius: 1.5)
-                        .fill(i > 9 ? Color.red : (i > 7 ? .yellow : .green))
-                        .opacity(lit ? 1 : 0.18)
-                        .frame(width: 4, height: 14)
-                }
+    func makeNSView(context: Context) -> MeterView { MeterView() }
+    func updateNSView(_ view: MeterView, context: Context) {
+        view.level = level
+        view.active = active
+    }
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: MeterView, context: Context) -> CGSize? {
+        CGSize(width: 12 * 4 + 11 * 2, height: 14)
+    }
+
+    final class MeterView: NSView {
+        var level: () -> Float = { 0 }
+        var active = false { didSet { if active != oldValue { updateTimer() } } }
+        private var bars: [CALayer] = []
+        private var lit = -1
+        private var timer: Timer?
+
+        init() {
+            super.init(frame: NSRect(x: 0, y: 0, width: 70, height: 14))
+            wantsLayer = true
+            for i in 0..<12 {
+                let b = CALayer()
+                b.cornerRadius = 1.5
+                b.backgroundColor = (i > 9 ? NSColor.systemRed : (i > 7 ? NSColor.systemYellow : NSColor.systemGreen)).cgColor
+                b.frame = CGRect(x: CGFloat(i) * 6, y: 0, width: 4, height: 14)
+                b.opacity = 0.18
+                b.actions = ["opacity": NSNull()]
+                layer?.addSublayer(b)
+                bars.append(b)
             }
+        }
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); updateTimer() }
+
+        private func updateTimer() {
+            let run = active && window != nil
+            if run, timer == nil {
+                let t = Timer(timeInterval: 1 / 15, repeats: true) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.step() }
+                }
+                RunLoop.main.add(t, forMode: .common)
+                timer = t
+            } else if !run {
+                timer?.invalidate()
+                timer = nil
+                show(0)
+            }
+        }
+
+        private func step() {
+            guard window?.occlusionState.contains(.visible) == true else { return }
+            show(Int((min(1, level() * 1.6) * 12).rounded(.up)))
+        }
+
+        private func show(_ n: Int) {
+            guard n != lit else { return }
+            lit = n
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            for (i, b) in bars.enumerated() { b.opacity = i < n ? 1 : 0.18 }
+            CATransaction.commit()
         }
     }
 }
