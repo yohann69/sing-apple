@@ -25,10 +25,13 @@ public struct BlobBackground: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { context in
+        // Drawn at a quarter of the size and scaled up: the blur hides the difference and the GPU does 16 times less work.
+        TimelineView(.animation(minimumInterval: 1 / 24, paused: reduceMotion)) { context in
             let t = reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate / period * 2 * .pi
-            GeometryReader { geo in
-                let size = geo.size
+            GeometryReader { outer in
+              let full = outer.size
+              let size = CGSize(width: max(1, full.width / 4), height: max(1, full.height / 4))
+              ZStack {
                 let unit = max(size.width, size.height)
                 ZStack {
                     base
@@ -47,6 +50,12 @@ public struct BlobBackground: View {
                 }
                 .blur(radius: unit * 0.09)
                 .overlay(Color.black.opacity(dim))
+                .frame(width: size.width, height: size.height)
+                .drawingGroup()
+                .scaleEffect(4, anchor: .topLeading)
+              }
+              .frame(width: full.width, height: full.height, alignment: .topLeading)
+              .clipped()
             }
         }
         .animation(.easeInOut(duration: 1.6), value: colors)

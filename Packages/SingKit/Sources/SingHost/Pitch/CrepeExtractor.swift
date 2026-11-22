@@ -17,7 +17,7 @@ public final class CrepeExtractor: @unchecked Sendable {
         var url = modelURL
         if url.pathExtension == "mlpackage" { url = try MLModel.compileModel(at: url) }
         let config = MLModelConfiguration()
-        config.computeUnits = .all
+        config.computeUnits = .cpuAndNeuralEngine
         model = try MLModel(contentsOf: url, configuration: config)
     }
 

@@ -90,7 +90,7 @@ extension HostController {
         audit("Owner", "unpaired a device")
         try? await database.writer.write { db in try db.execute(sql: "UPDATE pad SET revoked = 1 WHERE id = ?", arguments: [id]) }
         await server?.disconnect(padID: id)
-        connectedPads = await server?.connectedPads() ?? []
+        if let pads = await server?.connectedPads(), pads.map(\.padID) != connectedPads.map(\.padID) { connectedPads = pads }
     }
 
     public func setPadRole(_ id: String, role: PadRole) async {
@@ -325,6 +325,10 @@ extension HostController {
             }
             if let r = restUntil, r > .now { hold = true } else { restUntil = nil }
         }
+        // While someone sings, everything waits, unless the next song still needs preparing.
+        let nextReady = queue.entries.first.map { e in songs.first { $0.id == e.song.id }?.readiness == .ready } ?? true
+        separation.gate.holdAll = sys.pauseProcessingWhileSinging && singing && nextReady
+        separation.gate.holdBackground = hold
         if hold != processingHeld {
             processingHeld = hold
             let sep = separation

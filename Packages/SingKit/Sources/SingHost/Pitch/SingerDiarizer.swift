@@ -19,7 +19,9 @@ public enum SingerDiarizer {
         let mono = vDSP.multiply(0.5, vDSP.add(audio.left, audio.right))
         var url = model
         if url.pathExtension == "mlpackage" { url = try MLModel.compileModel(at: url) }
-        let ml = try MLModel(contentsOf: url)
+        let config = MLModelConfiguration()
+        config.computeUnits = .cpuAndNeuralEngine
+        let ml = try MLModel(contentsOf: url, configuration: config)
         var out: [(Int, [Double])] = []
         for (li, line) in lyrics.lines.enumerated() {
             let a = max(0, Int((line.start - 0.05) * rate)), b = min(mono.count, Int((line.end + 0.1) * rate))

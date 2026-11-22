@@ -404,7 +404,7 @@ public final class HostController: HostAPI {
         let vocals = paths.vocals(record.audioHash)
         guard FileManager.default.fileExists(atPath: vocals.path) else { return nil }
         let lyrics = lyricsService.cached(record)
-        let track = await Task.detached(priority: .userInitiated) { () -> PitchTrack? in
+        let track = await Task.detached(priority: .utility) { () -> PitchTrack? in
             if hasCrepe, let ex = try? CrepeExtractor(modelURL: crepe), let t = try? ex.extract(vocals: vocals, lyrics: lyrics) { return t }
             return try? MelodyExtractor.extract(vocals: vocals)
         }.value
@@ -868,7 +868,7 @@ public final class HostController: HostAPI {
             nowPlaying.nextLine = next
         }
         await server?.broadcast(.position(.init(positionMs: nowPlaying.positionMs, at: nowPlaying.positionAt, lineIndex: idx)))
-        connectedPads = await server?.connectedPads() ?? []
+        if let pads = await server?.connectedPads(), pads.map(\.padID) != connectedPads.map(\.padID) { connectedPads = pads }
         if preparing.isEmpty { processingStartedAt = nil }
         updateProcessingHold()
         updateKeepAwake()
@@ -1270,7 +1270,7 @@ public final class HostController: HostAPI {
         try? await database.writer.write { db in
             try db.execute(sql: "UPDATE pad SET lastSeenAt = ? WHERE id = ?", arguments: [Date.now, pad.padID])
         }
-        connectedPads = await server?.connectedPads() ?? []
+        if let pads = await server?.connectedPads(), pads.map(\.padID) != connectedPads.map(\.padID) { connectedPads = pads }
     }
 }
 #endif

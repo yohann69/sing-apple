@@ -1,7 +1,43 @@
 import Foundation
 import SingCore
 
+/// Shared with the audio-safe progress callback: lets a running separation wait while someone sings.
+final class SeparationGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _holdBackground = false
+    private var _holdAll = false
+    var holdBackground: Bool {
+        get { lock.withLock { _holdBackground } }
+        set { lock.withLock { _holdBackground = newValue } }
+    }
+    var holdAll: Bool {
+        get { lock.withLock { _holdAll } }
+        set { lock.withLock { _holdAll = newValue } }
+    }
+
+    /// Blocks the worker thread (never the UI) for as long as this kind of work should wait.
+    func waitIfNeeded(urgent: Bool) {
+        while holdAll || (!urgent && holdBackground) { Thread.sleep(forTimeInterval: 0.25) }
+    }
+}
+
+/// Reports progress at most twice a second, so the interface is not redrawn for every chunk.
+final class ProgressThrottle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last = -1.0
+    private var lastAt = Date.distantPast
+    func shouldSend(_ p: Double) -> Bool {
+        lock.withLock {
+            guard p - last >= 0.02 || Date.now.timeIntervalSince(lastAt) >= 0.5 || p >= 1 else { return false }
+            last = p
+            lastAt = .now
+            return true
+        }
+    }
+}
+
 /// Serial background queue: songs in the play queue go first, the rest of the library after.
+/// Work runs at background priority and on the CPU and Neural Engine only, leaving the GPU to the interface and the TV.
 public actor SeparationQueue {
     public typealias ProgressHandler = @Sendable (SongID, Double, Readiness) -> Void
 
@@ -9,6 +45,8 @@ public actor SeparationQueue {
     let paths: SingPaths
     let modelURL: URL
     var separator: DemucsSeparator?
+    nonisolated let gate = SeparationGate()
+    var currentIsUrgent = false
     var urgent: [SongID] = []
     var background: [SongID] = []
     var running = false
@@ -37,7 +75,13 @@ public actor SeparationQueue {
 
     public func setHoldBackground(_ h: Bool) {
         holdBackground = h
+        gate.holdBackground = h
         if !h { kick() }
+    }
+
+    /// Pauses even songs in the queue, mid-way; used while singing when the next song is already ready.
+    public func setHoldAll(_ h: Bool) {
+        gate.holdAll = h
     }
 
     public var modelAvailable: Bool { FileManager.default.fileExists(atPath: modelURL.path) }
@@ -66,12 +110,12 @@ public actor SeparationQueue {
     private func kick() {
         guard !running, !paused, !urgent.isEmpty || (!background.isEmpty && !holdBackground) else { return }
         running = true
-        Task { await self.loop() }
+        Task(priority: .background) { await self.loop() }
     }
 
     private func next() -> SongID? {
-        if !urgent.isEmpty { return urgent.removeFirst() }
-        if !background.isEmpty, !holdBackground { return background.removeFirst() }
+        if !urgent.isEmpty { currentIsUrgent = true; return urgent.removeFirst() }
+        if !background.isEmpty, !holdBackground { currentIsUrgent = false; return background.removeFirst() }
         return nil
     }
 
@@ -98,12 +142,16 @@ public actor SeparationQueue {
         try? await library.update(id) { $0.readiness = .processing }
         onProgress?(id, 0, .processing)
         do {
-            if separator == nil { separator = try DemucsSeparator(modelURL: modelURL) }
+            if separator == nil { separator = try DemucsSeparator(modelURL: modelURL, computeUnits: .cpuAndNeuralEngine) }
             guard let separator else { return }
             let handler = onProgress
+            let gate = self.gate, urgentNow = currentIsUrgent
+            let throttle = ProgressThrottle()
+            gate.waitIfNeeded(urgent: urgentNow)
             let audio = try StereoAudio.load(URL(fileURLWithPath: song.filePath))
             let vocals = try separator.separateVocals(audio) { p in
-                handler?(id, p * 0.7, .processing)
+                gate.waitIfNeeded(urgent: urgentNow)
+                if throttle.shouldSend(p) { handler?(id, p * 0.7, .processing) }
                 return true
             }
             let instrumental = StereoAudio(
