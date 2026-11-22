@@ -28,6 +28,8 @@ extension HostController {
         }.sorted { $0.name < $1.name }
     }
 
+    public func modelList() async -> [ModelInfo] { installedModels().map { ModelInfo(name: $0.name, task: $0.task, bytes: $0.bytes) } }
+
     public func removeModel(_ name: String) {
         for ext in ["mlmodelc", "mlpackage"] { try? FileManager.default.removeItem(at: paths.models.appendingPathComponent("\(name).\(ext)")) }
         audit("Mac", "removed the \(name) model")

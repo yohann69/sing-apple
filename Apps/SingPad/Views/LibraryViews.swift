@@ -175,6 +175,9 @@ struct SongSheet: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+                ToolbarItem(placement: .secondaryAction) {
+                    Button { Task { try? await model.client?.reportBadLyrics(song.id); model.toast = "Thanks, the Mac is looking for better lyrics" } } label: { Label("Report wrong lyrics", systemImage: "exclamationmark.bubble") }
+                }
                 if model.isHost {
                     ToolbarItem(placement: .primaryAction) { NavigationLink { PadSongSettings(song: song) } label: { Label("Song settings", systemImage: "slider.horizontal.3") } }
                 }
@@ -474,6 +477,7 @@ struct OwnerAreaView: View {
     @State private var working: SingSettings?
     @State private var confirm: ClearCacheRequest?
     @State private var audit: [AuditEntry] = []
+    @State private var models: [ModelInfo] = []
 
     var body: some View {
         Form {
@@ -490,6 +494,17 @@ struct OwnerAreaView: View {
                         working?.locks = v
                         if let w = working { Task { try? await model.client?.updateOwnerSettings(w) } }
                     }))
+                }
+                Section("AI models") {
+                    ForEach(models) { m in
+                        HStack {
+                            VStack(alignment: .leading) { Text(m.name); Text("\(m.task) · \(ByteCountFormatter.string(fromByteCount: m.bytes, countStyle: .file))").font(.caption).foregroundStyle(.secondary) }
+                            Spacer()
+                            Button("Remove", role: .destructive) { Task { try? await model.client?.removeModel(m.name); await load() } }
+                        }
+                    }
+                    Button("Reinstall the shipped models") { Task { try? await model.client?.reinstallModels(); await load() } }
+                    Button("Check every song cache") { Task { if let n = try? await model.client?.checkCaches() { model.toast = n == 0 ? "Every cache is fine" : "Rebuilding \(n) songs" } } }
                 }
                 AuditLogSection(entries: audit)
                 PadListSection(pads: overview.pads) { p in
@@ -540,6 +555,7 @@ struct OwnerAreaView: View {
         do {
             overview = try await client.ownerOverview()
             audit = (try? await client.auditLog()) ?? []
+            models = (try? await client.models()) ?? []
             var s = model.state.settings
             if let o = overview { s.services = o.services }
             working = s

@@ -66,6 +66,11 @@ public protocol HostAPI: AnyObject, Sendable {
     func auditLog(limit: Int) async -> [AuditEntry]
     func ask(_ sentence: String) async throws -> SearchResponse
     func duetSuggestions(_ a: SingerID, _ b: SingerID) async throws -> [Suggestion]
+    func reportBadLyrics(_ id: SongID, by who: String) async
+    func modelList() async -> [ModelInfo]
+    func removeModel(_ name: String) async
+    func reinstallBundledModels() async
+    func integrityCheck() async -> Int
 }
 
 public struct NewSinger: Codable, Sendable {
@@ -288,6 +293,10 @@ public final class SingServer: Sendable {
                 guard pad.role == .host, let id = Int64(p[1]) else { return error(403, "rejected", "Only the host can do that.") }
                 await api.deleteSinger(id, by: pad.name)
                 return json(["ok": true])
+            case ("POST", let p) where p.count == 4 && p[0] == "songs" && p[2] == "lyrics" && p[3] == "report":
+                guard let id = Int64(p[1]) else { return error(400, "badRequest", "Bad song id") }
+                await api.reportBadLyrics(id, by: pad.name)
+                return json(["ok": true])
             case ("GET", ["ask"]):
                 return json(try await api.ask(req.query["q"] ?? ""))
             case ("GET", ["suggestions", "duet"]):
@@ -404,6 +413,16 @@ extension SingServer {
         switch (req.method, p) {
         case ("GET", []):
             return json(await api.ownerOverview())
+        case ("GET", ["models"]):
+            return json(await api.modelList())
+        case ("DELETE", let q) where q.count == 2 && q[0] == "models":
+            await api.removeModel(q[1])
+            return json(["ok": true])
+        case ("POST", ["models", "reinstall"]):
+            await api.reinstallBundledModels()
+            return json(["ok": true])
+        case ("POST", ["check"]):
+            return json(["rebuilding": await api.integrityCheck()])
         case ("GET", ["audit"]):
             return json(await api.auditLog(limit: 300))
         case ("GET", ["backup"]):

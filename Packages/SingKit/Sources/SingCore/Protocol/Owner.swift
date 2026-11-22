@@ -128,6 +128,14 @@ public struct PadInfo: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
+public struct ModelInfo: Codable, Sendable, Hashable, Identifiable {
+    public var id: String { name }
+    public var name: String
+    public var task: String
+    public var bytes: Int64
+    public init(name: String, task: String, bytes: Int64) { self.name = name; self.task = task; self.bytes = bytes }
+}
+
 public struct OwnerUnlock: Codable, Sendable {
     public var pin: String
     public init(pin: String) { self.pin = pin }

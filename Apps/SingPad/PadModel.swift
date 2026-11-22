@@ -196,6 +196,7 @@ final class PadModel {
         switch msg {
         case .hello(let h):
             connection = .connected
+            afterConnect()
             if var s = saved, s.role != h.role { s.role = h.role; saved = s }
         case .state(let s):
             withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) { state = s }
@@ -259,6 +260,36 @@ final class PadModel {
     }
 
     var position: TimeInterval {
-        Double(state.nowPlaying.estimatedPosition()) / 1000
+        Double(state.nowPlaying.estimatedPosition(at: Date.now.addingTimeInterval(clockOffset))) / 1000
+    }
+
+    /// How far the Mac's clock is ahead of this device's, measured on each connection.
+    var clockOffset: TimeInterval = 0
+    var updateAvailable: String?
+    @ObservationIgnored private var statusTask: Task<Void, Never>?
+
+    /// Clock sync, update check and a battery report every minute while connected.
+    func afterConnect() {
+        guard let client else { return }
+        Task {
+            let t0 = Date.now
+            if let info = try? await client.info(), let server = info.time {
+                let t1 = Date.now
+                clockOffset = server.timeIntervalSince(t0.addingTimeInterval(t1.timeIntervalSince(t0) / 2))
+                let mine = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+                if info.appVersion.compare(mine, options: .numeric) == .orderedDescending {
+                    updateAvailable = "The Mac runs Sing! \(info.appVersion). Update this app to get the newest features."
+                }
+            }
+        }
+        statusTask?.cancel()
+        statusTask = Task { [weak self] in
+            UIDevice.current.isBatteryMonitoringEnabled = true
+            while !Task.isCancelled {
+                let level = UIDevice.current.batteryLevel
+                self?.send(.deviceStatus(battery: level >= 0 ? Double(level) : nil))
+                try? await Task.sleep(for: .seconds(60))
+            }
+        }
     }
 }

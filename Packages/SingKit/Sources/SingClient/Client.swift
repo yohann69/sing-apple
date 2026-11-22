@@ -145,6 +145,12 @@ public struct SingAPIClient: Sendable {
     }
     public func auditLog() async throws -> [AuditEntry] { try await get("v1/owner/audit") }
 
+    public func reportBadLyrics(_ id: SongID) async throws { let _: [String: Bool] = try await send("v1/songs/\(id)/lyrics/report", method: "POST", body: [String: String]()) }
+    public func models() async throws -> [ModelInfo] { try await get("v1/owner/models") }
+    public func removeModel(_ name: String) async throws { let _: [String: Bool] = try await send("v1/owner/models/\(name)", method: "DELETE", body: [String: String]()) }
+    public func reinstallModels() async throws { let _: [String: Bool] = try await send("v1/owner/models/reinstall", method: "POST", body: [String: String]()) }
+    public func checkCaches() async throws -> Int { let r: [String: Int] = try await send("v1/owner/check", method: "POST", body: [String: String]()); return r["rebuilding"] ?? 0 }
+
     public func recap() async throws -> PartyRecap { try await get("v1/recap") }
     public func songSettings(_ id: SongID) async throws -> SongSettings { try await get("v1/songs/\(id)/settings") }
     @discardableResult
