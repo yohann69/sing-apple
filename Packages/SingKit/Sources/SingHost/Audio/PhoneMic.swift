@@ -47,6 +47,9 @@ final class PhoneMicReceiver: @unchecked Sendable {
 
     func revoke(_ padID: String) { lock.withLock { keys = keys.filter { $0.value != padID } } }
 
+    /// Devices that were handed a key and have not stopped yet.
+    var hasDevices: Bool { lock.withLock { !keys.isEmpty } }
+
     var activeDevices: [String] {
         lock.withLock { keys.filter { (lastPacket[$0.key] ?? .distantPast) > Date.now.addingTimeInterval(-1) }.map(\.value) }
     }

@@ -151,6 +151,9 @@ public struct PlaybackSettings: Codable, Sendable, Hashable {
     public var recordPerformances = false
     /// Recordings older than this are deleted unless kept. 0 keeps them forever.
     public var keepRecordingsDays: Double = 30
+    /// A short jingle when the results come up (and when Sing! opens), then soft music under the results.
+    public var resultsMusic = true
+    public var resultsMusicVolume: Double = 0.6
 
     public init() {}
 
@@ -159,6 +162,8 @@ public struct PlaybackSettings: Codable, Sendable, Hashable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         func v<T: Decodable>(_ k: CodingKeys, _ fallback: T) -> T { (try? c.decode(T.self, forKey: k)) ?? fallback }
         defaultGuideVocal = v(.defaultGuideVocal, d.defaultGuideVocal)
+        resultsMusic = v(.resultsMusic, d.resultsMusic)
+        resultsMusicVolume = v(.resultsMusicVolume, d.resultsMusicVolume)
         countdownBetweenSongs = v(.countdownBetweenSongs, d.countdownBetweenSongs)
         autoAdvance = v(.autoAdvance, d.autoAdvance)
         micEnabled = v(.micEnabled, d.micEnabled)

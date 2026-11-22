@@ -26,15 +26,23 @@ extension HostController {
 
     /// Starts the wireless-mic receiver if needed and hands this device a key.
     public func startPhoneMic(pad: PadIdentity) throws -> PhoneMicSession {
-        guard mic.isRunning else { throw ErrorBody(code: "mic", message: "Turn the Mac's microphone on first.") }
         let p = UInt16(port + 2)
         try mic.phones.start(port: p)
         let key = mic.phones.issueKey(for: pad.padID)
+        // The Mac's own mic can stay off: the phones then feed the mic chain alone.
+        syncMicEngine()
+        guard mic.isRunning || settings.playback.micEnabled else {
+            mic.phones.revoke(pad.padID)
+            throw ErrorBody(code: "mic", message: "The Mac could not start the sound for wireless mics.")
+        }
         audit(pad.name, "started using this device as a mic")
         return PhoneMicSession(port: Int(p), key: key.base64EncodedString())
     }
 
-    public func stopPhoneMic(pad: PadIdentity) { mic.phones.revoke(pad.padID) }
+    public func stopPhoneMic(pad: PadIdentity) {
+        mic.phones.revoke(pad.padID)
+        syncMicEngine()
+    }
 
     var phonePitch: Float? { mic.phones.activeDevices.isEmpty ? nil : mic.phones.pitch.midi }
 

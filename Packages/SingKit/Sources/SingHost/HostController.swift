@@ -31,7 +31,9 @@ public final class HostController: HostAPI {
     public private(set) var songs: [SongSummary] = []
     public private(set) var artworkFiles: [SongID: URL] = [:]
     public internal(set) var queue = QueueModel()
-    public internal(set) var nowPlaying = NowPlaying()
+    public internal(set) var nowPlaying = NowPlaying() {
+        didSet { if nowPlaying.state != oldValue.state { updateCue(from: oldValue.state) } }
+    }
     public internal(set) var lyrics: Lyrics?
     public private(set) var pitchTrack: PitchTrack? {
         didSet { displayPitch = pitchTrack.map { $0.version >= PitchTrack.currentVersion ? $0.coarse() : $0.simplified() } }
@@ -64,7 +66,9 @@ public final class HostController: HostAPI {
     @ObservationIgnored var songPrefs: [SongID: SongPrefs] = [:]
     @ObservationIgnored var take: RecordingTake?
     public internal(set) var tonightBoard: [RankedName] = []
-    public internal(set) var recap: PartyRecap?
+    public internal(set) var recap: PartyRecap? {
+        didSet { if (recap == nil) != (oldValue == nil) { updateCue(from: nowPlaying.state) } }
+    }
     public internal(set) var funFacts: [String] = []
     @ObservationIgnored var meterTask: Task<Void, Never>?
     @ObservationIgnored var channelKeepers = (0..<4).map { _ in ScoreKeeper() }
@@ -233,6 +237,7 @@ public final class HostController: HostAPI {
         Task { await upgradeLyricsInBackground() }
         if settings.playback.micEnabled, env["SING_NO_MIC"] == nil { await startMic() }
         await restoreResumePoint()
+        if env["SING_NO_MIC"] == nil { playOpeningJingle() }
         Task { await checkMissingFiles() }
     }
 
@@ -751,8 +756,18 @@ public final class HostController: HostAPI {
         let clamped = max(0, min(1, v))
         playback.guideVocal = clamped
         nowPlaying.guideVocal = clamped
+        // The level stays for the next songs until someone changes it again.
+        // Saved once the slider rests, so dragging it does not rebuild the mic effects on every step.
+        guideSaveTask?.cancel()
+        guideSaveTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard let self, !Task.isCancelled, self.settings.playback.defaultGuideVocal != clamped else { return }
+            self.settings.playback.defaultGuideVocal = clamped
+        }
         scheduleBroadcast()
     }
+
+    @ObservationIgnored var guideSaveTask: Task<Void, Never>?
 
     func songFinished(skipped: Bool) {
         if isReplaying { replayFinished(); return }
@@ -855,8 +870,12 @@ public final class HostController: HostAPI {
     @ObservationIgnored var lastMicState: MicStatus.State?
 
     func tick() async {
-        let ms = micStatus.state
-        if ms != lastMicState { lastMicState = ms; micStateText = micStatus.message; scheduleBroadcast() }
+        let status = micStatus
+        if status.state != lastMicState || status.message != micStateText {
+            lastMicState = status.state
+            micStateText = status.message
+            scheduleBroadcast()
+        }
         guard nowPlaying.state == .playing else { return }
         syncPosition()
         let idx = lyrics?.lineIndex(at: lyricTime)
@@ -949,7 +968,9 @@ public final class HostController: HostAPI {
 
     public var micStatus: MicStatus {
         let perm = AVCaptureDevice.authorizationStatus(for: .audio)
-        if !settings.playback.micEnabled { return MicStatus(state: .off) }
+        if !settings.playback.micEnabled {
+            return MicStatus(state: .off, message: mic.phones.hasDevices ? "The Mac's mic is off. Phones used as mics still work." : nil)
+        }
         if perm == .notDetermined { return MicStatus(state: .needsPermission, message: "Sing! is waiting for microphone permission.") }
         if perm == .denied || perm == .restricted {
             return MicStatus(state: .denied, message: "Microphone access is off for Sing!. Turn it on in System Settings, Privacy & Security, Microphone.")
@@ -988,8 +1009,23 @@ public final class HostController: HostAPI {
         mic.correctionStrength = settings.playback.pitchCorrection
         mic.echo = settings.playback.micEcho
         mic.applyPreset()
-        if settings.playback.micEnabled, !mic.isRunning, server != nil { Task { await startMic() } }
-        if !settings.playback.micEnabled, mic.isRunning { mic.stop() }
+        if server != nil { syncMicEngine() }
+    }
+
+    /// Runs the mic chain with the Mac's mic when it is on, with only the phones when it is off
+    /// and a device is used as a mic, and not at all otherwise.
+    func syncMicEngine() {
+        if settings.playback.micEnabled {
+            if mic.isRunning, !mic.usesMacMic { mic.stop() }
+            if !mic.isRunning { Task { await startMic() } }
+        } else if mic.phones.hasDevices {
+            if mic.isRunning, mic.usesMacMic { mic.stop() }
+            if !mic.isRunning {
+                do { try mic.start(macMic: false) } catch { lastError = "Phone mics: \(error.localizedDescription)" }
+            }
+        } else if mic.isRunning {
+            mic.stop()
+        }
     }
 
     func persistSettings() {

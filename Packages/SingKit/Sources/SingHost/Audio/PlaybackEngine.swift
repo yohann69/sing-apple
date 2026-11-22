@@ -46,6 +46,11 @@ public final class PlaybackEngine {
     private func applyVolume() { stemMixer.outputVolume = Float(volume * normalization * fade) }
 
     private var recorder: TapRecorder?
+    let cueJingle = AVAudioPlayerNode()
+    let cueBed = AVAudioPlayerNode()
+    let cueMixer = AVAudioMixerNode()
+    var cueGeneration = 0
+    var engineForCue: AVAudioEngine { engine }
 
     /// Records the music as heard (after key and tempo) until `stopRecording`.
     func startRecording(to url: URL) {
@@ -209,6 +214,68 @@ public final class PlaybackEngine {
     }
 }
 
+/// The results jingle and the soft music that follows it, on the same output as the songs.
+extension PlaybackEngine {
+    /// Plays the jingle, then loops the bed until `stopCue`. With `bed` nil only the jingle plays.
+    public func playCue(jingle: URL, bed: URL?, volume: Double) {
+        stopCue(fade: 0)
+        guard let j = try? AVAudioFile(forReading: jingle) else { return }
+        let b = bed.flatMap { try? AVAudioFile(forReading: $0) }
+        let bedBuffer = b.flatMap { f -> AVAudioPCMBuffer? in
+            guard let buf = AVAudioPCMBuffer(pcmFormat: f.processingFormat, frameCapacity: AVAudioFrameCount(f.length)) else { return nil }
+            try? f.read(into: buf)
+            return buf
+        }
+        let engine = self.engineForCue, jn = cueJingle, bn = cueBed, mixer = cueMixer
+        do {
+            try objc {
+                if jn.engine == nil { engine.attach(jn); engine.attach(bn); engine.attach(mixer) }
+                engine.disconnectNodeOutput(jn)
+                engine.disconnectNodeOutput(bn)
+                engine.connect(jn, to: mixer, format: j.processingFormat)
+                engine.connect(bn, to: mixer, format: bedBuffer?.format ?? j.processingFormat)
+                engine.connect(mixer, to: engine.mainMixerNode, format: nil)
+            }
+            if !engine.isRunning { try engine.start() }
+        } catch { return }
+        mixer.outputVolume = Float(volume)
+        cueGeneration += 1
+        let start = AVAudioTime(hostTime: mach_absolute_time() + AVAudioTime.hostTime(forSeconds: 0.05))
+        jn.scheduleFile(j, at: nil)
+        if let bedBuffer {
+            // The bed comes in just under the jingle's last chord, so the music never stops.
+            let offset = max(0, Double(j.length) / j.processingFormat.sampleRate - 0.9)
+            let bedStart = AVAudioTime(hostTime: start.hostTime + AVAudioTime.hostTime(forSeconds: offset))
+            bn.volume = 0.85
+            bn.scheduleBuffer(bedBuffer, at: nil, options: .loops)
+            try? objc { bn.play(at: bedStart) }
+        }
+        try? objc { jn.play(at: start) }
+    }
+
+    /// Fades the cue out over `fade` seconds.
+    public func stopCue(fade: TimeInterval = 1.5) {
+        cueGeneration += 1
+        let gen = cueGeneration
+        let jn = cueJingle, bn = cueBed, mixer = cueMixer
+        guard jn.engine != nil, jn.isPlaying || bn.isPlaying else { return }
+        guard fade > 0 else { jn.stop(); bn.stop(); return }
+        let from = mixer.outputVolume
+        Task { @MainActor [weak self] in
+            let steps = 20
+            for i in 1...steps {
+                try? await Task.sleep(for: .seconds(fade / Double(steps)))
+                guard let self, self.cueGeneration == gen else { return }
+                mixer.outputVolume = from * Float(steps - i) / Float(steps)
+            }
+            jn.stop()
+            bn.stop()
+        }
+    }
+
+    public var cuePlaying: Bool { cueJingle.isPlaying || cueBed.isPlaying }
+}
+
 /// Built outside the main actor so the audio thread can call it.
 nonisolated func recordingTap(_ rec: TapRecorder) -> AVAudioNodeTapBlock {
     { @Sendable buf, _ in rec.write(buf) }
@@ -248,7 +315,10 @@ enum Loudness {
 /// Live microphone with effects, routed to the chosen output on its own low-latency engine.
 @MainActor
 public final class MicEngine {
-    private let engine = AVAudioEngine()
+    private var engine = AVAudioEngine()
+    /// False when only phones are used as mics: the Mac's own input is never opened.
+    public private(set) var usesMacMic = true
+    private var inputTouched = false
     private let reverb = AVAudioUnitReverb()
     private let delay = AVAudioUnitDelay()
     private let limiter = AVAudioUnitEffect(audioComponentDescription: AudioComponentDescription(
@@ -261,7 +331,7 @@ public final class MicEngine {
         didSet {
             tuner.bypass = correctionStrength <= 0
             if correctionStrength <= 0 { tuner.pitch = 0 }
-            if (correctionStrength > 0) != (oldValue > 0), isRunning { stop(); try? start() }
+            if (correctionStrength > 0) != (oldValue > 0), isRunning { stop(); try? start(macMic: usesMacMic) }
         }
     }
     public var correctionCents: Float = 0 { didSet { tuner.pitch = max(-150, min(150, correctionCents)) } }
@@ -293,7 +363,7 @@ public final class MicEngine {
         recorder = nil
     }
 
-    var inputLatency: TimeInterval { engine.inputNode.presentationLatency }
+    var inputLatency: TimeInterval { usesMacMic && inputTouched ? engine.inputNode.presentationLatency : 0 }
     /// Loudest sample since the mic started; exactly zero means macOS is feeding silence (access blocked).
     public var peakSinceStart: Float { meter.peak }
     public private(set) var deviceName: String?
@@ -309,7 +379,7 @@ public final class MicEngine {
     /// Per-mic volume, used when the mics are mixed separately.
     public let mixGains = MixGains()
     /// Mix each channel with its own volume (adds about 40 ms of latency).
-    public var separateMics = false { didSet { if separateMics != oldValue, isRunning { stop(); try? start() } } }
+    public var separateMics = false { didSet { if separateMics != oldValue, isRunning { stop(); try? start(macMic: usesMacMic) } } }
     private var splitSource: AVAudioSourceNode?
     /// Wireless mics from phones, mixed in with the wired ones.
     let phones = PhoneMicReceiver()
@@ -376,11 +446,16 @@ public final class MicEngine {
     public func configure(inputUID: String?, outputUID: String?) {
         self.inputUID = inputUID
         self.outputUID = outputUID
-        if isRunning { stop(); try? start() }
+        if isRunning { stop(); try? start(macMic: usesMacMic) }
     }
 
-    public func start() throws {
+    /// Starts the mic chain. With `macMic` false only the phones feed it, and the Mac's input stays closed.
+    public func start(macMic: Bool = true) throws {
         guard !isRunning else { return }
+        if !macMic, inputTouched { rebuildEngine() }
+        usesMacMic = macMic
+        if !macMic { return try startPhonesOnly() }
+        inputTouched = true
         // On macOS one engine drives one device: a chosen mic and output are joined in a private aggregate.
         let inDev = AudioDevices.device(uid: inputUID)
         let outDev = AudioDevices.device(uid: outputUID)
@@ -470,9 +545,50 @@ public final class MicEngine {
         startedAt = .now
     }
 
+    /// A fresh engine that has never opened the Mac's input (an engine keeps its input once touched).
+    private func rebuildEngine() {
+        let nodes: [AVAudioNode?] = [inputMixer, eq, tuner, delay, reverb, limiter, splitSource, phoneSource]
+        for n in nodes.compactMap({ $0 }) where n.engine === engine { engine.detach(n) }
+        engine = AVAudioEngine()
+        configured = false
+        inputTouched = false
+    }
+
+    private func startPhonesOnly() throws {
+        let rate = engine.outputNode.outputFormat(forBus: 0).sampleRate
+        let stereo = AVAudioFormat(standardFormatWithSampleRate: rate > 0 ? rate : 48000, channels: 2)!
+        let phoneFormat = AVAudioFormat(standardFormatWithSampleRate: PhoneMicReceiver.sampleRate, channels: 1)!
+        if phoneSource == nil { phoneSource = AVAudioSourceNode(format: phoneFormat, renderBlock: Self.render(phones.ring)) }
+        guard let ps = phoneSource else { return }
+        channelCount = 0
+        deviceName = nil
+        let engine = self.engine, inMixer = self.inputMixer, eq = self.eq, delay = self.delay, reverb = self.reverb
+        let limiter = self.limiter, tuner = self.tuner, attach = !configured
+        try objc {
+            if attach {
+                for n in [inMixer, eq, tuner, delay, reverb, limiter] as [AVAudioNode] { engine.attach(n) }
+            }
+            if ps.engine == nil { engine.attach(ps) }
+            engine.disconnectNodeOutput(ps)
+            engine.connect(ps, to: inMixer, format: phoneFormat)
+            engine.disconnectNodeOutput(tuner)
+            engine.connect(inMixer, to: eq, format: stereo)
+            engine.connect(eq, to: delay, format: stereo)
+            engine.connect(delay, to: reverb, format: stereo)
+            engine.connect(reverb, to: limiter, format: stereo)
+            engine.connect(limiter, to: engine.mainMixerNode, format: stereo)
+        }
+        configured = true
+        applyGain()
+        try objc { engine.prepare() }
+        try engine.start()
+        isRunning = true
+        startedAt = .now
+    }
+
     public func stop() {
         guard isRunning else { return }
-        engine.inputNode.removeTap(onBus: 0)
+        if usesMacMic { engine.inputNode.removeTap(onBus: 0) }
         engine.stop()
         isRunning = false
         meter.value = 0

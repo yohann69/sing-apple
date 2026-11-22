@@ -107,6 +107,13 @@ public struct PartySettingsSections: View {
                 Text("Hard").tag("hard")
             }
             Toggle("Even out loudness between songs", isOn: $settings.playback.normalizeLoudness)
+            Toggle("Jingle and music for the results", isOn: $settings.playback.resultsMusic)
+            if settings.playback.resultsMusic {
+                VStack(alignment: .leading) {
+                    Text("Results music volume: \(Int(settings.playback.resultsMusicVolume * 100))%")
+                    Slider(value: $settings.playback.resultsMusicVolume, in: 0...1)
+                }
+            }
             Toggle("Turn mics down when feedback howls", isOn: $settings.playback.feedbackProtection)
             Picker("Fade songs in and out", selection: $settings.playback.crossfadeSeconds) {
                 Text("Off").tag(0.0)
