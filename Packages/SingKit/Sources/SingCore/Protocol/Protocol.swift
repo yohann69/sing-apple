@@ -33,6 +33,8 @@ public struct ServerInfo: Codable, Sendable, Hashable {
     public var minimumProtocolVersion: Int
     public var appVersion: String
     public var livePort: Int?
+    /// The Mac's clock, so pads can line their displays up with it.
+    public var time: Date?
 
     public init(name: String, protocolVersion: Int = SingProtocol.version, minimumProtocolVersion: Int = SingProtocol.minimumSupportedVersion, appVersion: String, livePort: Int? = nil) {
         self.name = name
@@ -258,6 +260,8 @@ public enum ClientMessage: Sendable {
     case setLyricOffset(ms: Int)
     /// Practice loop between two song times; nil clears it.
     case setLoop(Loop)
+    /// Battery level from 0 to 1, sent by pads now and then.
+    case deviceStatus(battery: Double?)
     case ping
 
     public struct Enqueue: Codable, Sendable { public var songID: SongID; public var singerIDs: [SingerID]; public var playNext: Bool; public var battle: Bool?
@@ -274,6 +278,7 @@ public enum ClientMessage: Sendable {
     private struct Semitones: Codable { var semitones: Int }
     private struct Preset: Codable { var preset: String }
     private struct Offset: Codable { var ms: Int }
+    private struct Status: Codable { var battery: Double? }
     public struct Loop: Codable, Sendable { public var startMs: Int?; public var endMs: Int?
         public init(startMs: Int?, endMs: Int?) { self.startMs = startMs; self.endMs = endMs } }
 }
@@ -299,6 +304,7 @@ extension ClientMessage: Codable {
         case "setMicPreset": self = .setMicPreset(try c.decode(Preset.self, forKey: .data).preset)
         case "setLyricOffset": self = .setLyricOffset(ms: try c.decode(Offset.self, forKey: .data).ms)
         case "setLoop": self = .setLoop(try c.decode(Loop.self, forKey: .data))
+        case "deviceStatus": self = .deviceStatus(battery: try c.decode(Status.self, forKey: .data).battery)
         case "ping": self = .ping
         case let other: throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "unknown type \(other)")
         }
@@ -322,6 +328,7 @@ extension ClientMessage: Codable {
         case .setMicPreset(let v): try c.encode("setMicPreset", forKey: .type); try c.encode(Preset(preset: v), forKey: .data)
         case .setLyricOffset(let v): try c.encode("setLyricOffset", forKey: .type); try c.encode(Offset(ms: v), forKey: .data)
         case .setLoop(let v): try c.encode("setLoop", forKey: .type); try c.encode(v, forKey: .data)
+        case .deviceStatus(let b): try c.encode("deviceStatus", forKey: .type); try c.encode(Status(battery: b), forKey: .data)
         case .ping: try c.encode("ping", forKey: .type)
         }
     }

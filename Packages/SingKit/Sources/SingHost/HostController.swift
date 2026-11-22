@@ -69,6 +69,10 @@ public final class HostController: HostAPI {
     @ObservationIgnored var meterTask: Task<Void, Never>?
     @ObservationIgnored var channelKeepers = (0..<4).map { _ in ScoreKeeper() }
     @ObservationIgnored var usedLoop = false
+    @ObservationIgnored var inMaintenance = false
+    @ObservationIgnored var resumeAt: (SongID, Double)?
+    @ObservationIgnored var padBattery: [String: Double] = [:]
+    @ObservationIgnored var padLastActive: [String: Date] = [:]
     @ObservationIgnored var singerUnlocks: [SingerID: Set<String>] = [:]
     @ObservationIgnored var singerPinAttempts: [SingerID: AttemptGuard] = [:]
     @ObservationIgnored var sleepAssertion: IOPMAssertionID = 0
@@ -201,6 +205,8 @@ public final class HostController: HostAPI {
         await loadEvicted()
         await loadSongPrefs()
         removeStaleTakes()
+        Self.installCrashLogging()
+        playback.onConfigurationChange = { [weak self] in self?.outputChanged() }
         await restoreQueue()
         startServer()
         startWatching()
@@ -215,6 +221,8 @@ public final class HostController: HostAPI {
         if modelAvailable, env["SING_NO_SEP"] == nil { await separation.enqueueBackground(pending) }
         Task { await upgradeLyricsInBackground() }
         if settings.playback.micEnabled, env["SING_NO_MIC"] == nil { await startMic() }
+        await restoreResumePoint()
+        Task { await checkMissingFiles() }
     }
 
     func startServer() {
@@ -650,9 +658,11 @@ public final class HostController: HostAPI {
             guard nowPlaying.entry?.id == entry.id, nowPlaying.state == .countdown else { return }
         }
         do {
-            try playback.play(from: 0)
+            let resume = resumeAt.flatMap { $0.0 == entry.song.id ? $0.1 : nil }
+            resumeAt = nil
+            try playback.play(from: resume ?? 0)
             nowPlaying.state = .playing
-            nowPlaying.positionMs = 0
+            nowPlaying.positionMs = Int((resume ?? 0) * 1000)
             nowPlaying.positionAt = .now
             beginPlay(entry)
             startTake(entry)
@@ -696,6 +706,7 @@ public final class HostController: HostAPI {
     }
 
     public func stopPlayback() {
+        clearResumePoint()
         discardTake()
         isReplaying = false
         finishCurrentPlay(skipped: true)
@@ -847,9 +858,11 @@ public final class HostController: HostAPI {
         if preparing.isEmpty { processingStartedAt = nil }
         updateProcessingHold()
         updateKeepAwake()
+        saveResumePoint()
         if Date.now.timeIntervalSince(lastStorageCheck) > 300 {
             lastStorageCheck = .now
             dailyBackup()
+            Task { await maintenanceIfDue() }
             Task { await enforceStorageLimits() }
         }
     }
@@ -1012,7 +1025,9 @@ public final class HostController: HostAPI {
     // MARK: HostAPI
 
     public func serverInfo() async -> ServerInfo {
-        ServerInfo(name: serverName, appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1", livePort: port + 1)
+        var info = ServerInfo(name: serverName, appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1", livePort: port + 1)
+        info.time = .now
+        return info
     }
 
     public func pair(_ request: PairRequest) async throws -> PairResponse {
@@ -1229,6 +1244,8 @@ public final class HostController: HostAPI {
         case .setMicPreset(let p):
             guard host, MicPreset(rawValue: p) != nil else { throw QueueError.notAllowed }
             settings.playback.micPreset = p
+        case .deviceStatus(let b):
+            recordStatus(pad, battery: b)
         case .ping, .auth:
             break
         }

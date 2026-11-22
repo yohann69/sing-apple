@@ -78,7 +78,11 @@ extension HostController {
     public func padList() async -> [PadInfo] {
         let rows = (try? await database.writer.read { try PadRecord.filter(Column("revoked") == false).order(Column("pairedAt").desc).fetchAll($0) }) ?? []
         let live = Set(connectedPads.map(\.padID))
-        return rows.map { PadInfo(id: $0.id, name: $0.name, model: $0.model, role: $0.role, pairedAt: $0.pairedAt, lastSeenAt: $0.lastSeenAt, connected: live.contains($0.id)) }
+        return rows.map { r in
+            var p = PadInfo(id: r.id, name: r.name, model: r.model, role: r.role, pairedAt: r.pairedAt, lastSeenAt: padLastActive[r.id] ?? r.lastSeenAt, connected: live.contains(r.id))
+            p.battery = padBattery[r.id]
+            return p
+        }
     }
 
     /// Unpairs a pad: its token stops working and it is disconnected now.
@@ -313,7 +317,7 @@ extension HostController {
     func updateProcessingHold() {
         let sys = settings.system
         let singing = nowPlaying.state == .playing || nowPlaying.state == .countdown
-        var hold = !sys.processLibraryInBackground || (sys.pauseProcessingWhileSinging && singing)
+        var hold = !inMaintenance && (!sys.processLibraryInBackground || (sys.pauseProcessingWhileSinging && singing) || thermalHold)
         if sys.restAfterMinutes > 0 {
             if let start = processingStartedAt, Date.now.timeIntervalSince(start) > sys.restAfterMinutes * 60 {
                 restUntil = .now.addingTimeInterval(10 * 60)

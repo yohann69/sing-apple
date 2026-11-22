@@ -115,6 +115,7 @@ public struct PadInfo: Codable, Sendable, Hashable, Identifiable {
     public var pairedAt: Date
     public var lastSeenAt: Date?
     public var connected: Bool
+    public var battery: Double?
 
     public init(id: String, name: String, model: String?, role: PadRole, pairedAt: Date, lastSeenAt: Date?, connected: Bool) {
         self.id = id

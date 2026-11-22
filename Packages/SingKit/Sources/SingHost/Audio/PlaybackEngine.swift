@@ -67,7 +67,14 @@ public final class PlaybackEngine {
         recorder = nil
     }
 
+    /// Called when the output device changes or disappears (HDMI unplugged).
+    public var onConfigurationChange: (() -> Void)?
+    nonisolated(unsafe) private var configObserver: NSObjectProtocol?
+
     public init() {
+        configObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.onConfigurationChange?() }
+        }
         engine.attach(instrumental)
         engine.attach(vocals)
         engine.attach(stemMixer)
@@ -112,6 +119,22 @@ public final class PlaybackEngine {
         applyVolume()
         startFrame = 0
         engine.prepare()
+    }
+
+    /// After a device change the engine stops; restart it on whatever output is there now and carry on.
+    public func recoverOutput() {
+        let wasPlaying = isPlaying
+        let at = position
+        isPlaying = false
+        generation += 1
+        if let dev = AudioDevices.device(uid: outputUID), let unit = engine.outputNode.audioUnit {
+            AudioDevices.assign(dev.id, to: unit)
+        } else {
+            outputUID = nil
+        }
+        engine.prepare()
+        try? engine.start()
+        if wasPlaying { try? play(from: at) } else { startFrame = AVAudioFramePosition(at * sampleRate) }
     }
 
     public var position: TimeInterval {

@@ -143,6 +143,8 @@ public struct PlaybackSettings: Codable, Sendable, Hashable {
     public var pitchCorrection: Double = 0
     /// Seconds of overlap between songs when the next one is ready, 0 is off.
     public var crossfadeSeconds: Double = 0
+    /// Measured by the clap test: how late the mic hears what the speakers play, in ms.
+    public var roundTripLatencyMs: Double = 0
     /// "easy", "normal" or "hard": how close to the note still counts.
     public var difficulty = "normal"
     /// Record each performance (music plus voice) for replay and sharing.
@@ -169,6 +171,7 @@ public struct PlaybackSettings: Codable, Sendable, Hashable {
         feedbackProtection = v(.feedbackProtection, d.feedbackProtection)
         normalizeLoudness = v(.normalizeLoudness, d.normalizeLoudness)
         difficulty = v(.difficulty, d.difficulty)
+        roundTripLatencyMs = v(.roundTripLatencyMs, d.roundTripLatencyMs)
         separateMics = v(.separateMics, d.separateMics)
         micChannelGains = v(.micChannelGains, d.micChannelGains)
         micSlots = v(.micSlots, d.micSlots)
@@ -280,6 +283,10 @@ public struct SystemSettings: Codable, Sendable, Hashable {
     public var pauseProcessingWhileSinging = true
     /// Pause after this many minutes of continuous processing to let the Mac cool down. 0 means never.
     public var restAfterMinutes: Double = 0
+    /// Hour of the night (0 to 23) for heavy upkeep: processing, checks, cleanup, backup. nil is off.
+    public var maintenanceHour: Int? = 4
+    /// Fill missing year, genre and artwork from MusicBrainz and the Cover Art Archive.
+    public var musicBrainz = true
 
     public init() {}
 
@@ -290,6 +297,8 @@ public struct SystemSettings: Codable, Sendable, Hashable {
         processLibraryInBackground = v(.processLibraryInBackground, d.processLibraryInBackground)
         pauseProcessingWhileSinging = v(.pauseProcessingWhileSinging, d.pauseProcessingWhileSinging)
         restAfterMinutes = v(.restAfterMinutes, d.restAfterMinutes)
+        maintenanceHour = c.contains(.maintenanceHour) ? (try? c.decodeIfPresent(Int.self, forKey: .maintenanceHour)) ?? nil : d.maintenanceHour
+        musicBrainz = v(.musicBrainz, d.musicBrainz)
     }
 }
 
