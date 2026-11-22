@@ -4961,7 +4961,27 @@
     "👏 %lld": {},
     "🥇": {},
     "🥈": {},
-    "🥉": {}
+    "🥉": {},
+    "Show in a window": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher dans une fenêtre"
+          }
+        }
+      }
+    },
+    "Hide the TV": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer la télé"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }
