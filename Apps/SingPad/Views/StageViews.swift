@@ -425,6 +425,11 @@ struct MixerSheet: View {
                         Button { loopLines(4) } label: { Label("Loop the next four lines", systemImage: "repeat") }
                     }
                 } header: { Text("Practice") } footer: { Text("A practice loop is not saved to the stats or recorded.") }
+                Section {
+                    Toggle(isOn: Binding(get: { model.phoneMicOn }, set: { _ in model.togglePhoneMic() })) {
+                        Label("Use this device as a mic", systemImage: "iphone.radiowaves.left.and.right")
+                    }
+                } footer: { Text("Experimental: your voice goes to the Mac over Wi-Fi with a small delay. Use headphones off and keep away from the speakers.") }
                 MicSettingsSection(playback: Binding(get: { model.state.settings.playback }, set: { v in model.updateSettings { $0.playback = v } }), channels: max(1, model.meters.count))
                 Section("Next songs") {
                     slider("Default guide vocal", "person.wave.2.fill", binding({ $0.defaultGuideVocal }) { $0.defaultGuideVocal = $1 })

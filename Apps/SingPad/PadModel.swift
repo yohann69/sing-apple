@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Observation
 import SingClient
@@ -35,6 +36,30 @@ final class PadModel {
     /// Granted by the owner PIN; kept in memory only.
     var ownerToken: String?
     var meters: [Float] = []
+    @ObservationIgnored let phoneMic = PhoneMicSender()
+    var phoneMicOn = false
+
+    /// Uses this device as a wireless mic through the Mac's speakers.
+    func togglePhoneMic() {
+        if phoneMicOn {
+            phoneMic.stop()
+            phoneMicOn = false
+            Task { try? await client?.stopPhoneMic() }
+            return
+        }
+        Task {
+            guard await AVAudioApplication.requestRecordPermission() else { toast = "Allow the microphone in Settings first"; return }
+            do {
+                guard let client, let host = saved?.endpoint.host else { return }
+                let session = try await client.startPhoneMic()
+                try phoneMic.start(host: host, session: session)
+                phoneMicOn = true
+                toast = "This device is now a mic. Hold it close and away from the speakers."
+            } catch {
+                toast = error.localizedDescription
+            }
+        }
+    }
     var wishIDs = Set<SongID>()
     var pinFor: Singer?
 

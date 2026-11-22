@@ -72,6 +72,8 @@ public protocol HostAPI: AnyObject, Sendable {
     func reinstallBundledModels() async
     func integrityCheck() async -> Int
     func searchLines(_ q: String) async -> SearchResponse
+    func startPhoneMic(pad: PadIdentity) async throws -> PhoneMicSession
+    func stopPhoneMic(pad: PadIdentity) async
 }
 
 public struct NewSinger: Codable, Sendable {
@@ -297,6 +299,11 @@ public final class SingServer: Sendable {
             case ("POST", let p) where p.count == 4 && p[0] == "songs" && p[2] == "lyrics" && p[3] == "report":
                 guard let id = Int64(p[1]) else { return error(400, "badRequest", "Bad song id") }
                 await api.reportBadLyrics(id, by: pad.name)
+                return json(["ok": true])
+            case ("POST", ["mic", "phone"]):
+                return json(try await api.startPhoneMic(pad: pad))
+            case ("DELETE", ["mic", "phone"]):
+                await api.stopPhoneMic(pad: pad)
                 return json(["ok": true])
             case ("GET", ["lines"]):
                 return json(await api.searchLines(req.query["q"] ?? ""))

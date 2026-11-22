@@ -303,6 +303,9 @@ public final class MicEngine {
     /// Mix each channel with its own volume (adds about 40 ms of latency).
     public var separateMics = false { didSet { if separateMics != oldValue, isRunning { stop(); try? start() } } }
     private var splitSource: AVAudioSourceNode?
+    /// Wireless mics from phones, mixed in with the wired ones.
+    let phones = PhoneMicReceiver()
+    private var phoneSource: AVAudioSourceNode?
     private let ring = MonoRing()
     private var inputUID: String?
     private var outputUID: String?
@@ -399,6 +402,10 @@ public final class MicEngine {
             splitSource = AVAudioSourceNode(format: mono, renderBlock: Self.render(ring))
         }
         let source = split ? splitSource : nil
+        let phoneFormat = AVAudioFormat(standardFormatWithSampleRate: PhoneMicReceiver.sampleRate, channels: 1)!
+        if phoneSource == nil { phoneSource = AVAudioSourceNode(format: phoneFormat, renderBlock: Self.render(phones.ring)) }
+        let phoneNode = phoneSource
+        if let p = phoneNode, p.engine == nil { engine.attach(p) }
         let eq = self.eq, reverb = self.reverb, engine = self.engine, inMixer = self.inputMixer, attach = !configured
         let delay = self.delay, limiter = self.limiter, tuner = self.tuner
         tuner.bypass = correctionStrength <= 0
@@ -419,6 +426,10 @@ public final class MicEngine {
             } else {
                 if let s = self.splitSource, s.engine != nil { engine.disconnectNodeOutput(s) }
                 engine.connect(input, to: inMixer, format: format)
+            }
+            if let ps = phoneNode {
+                engine.disconnectNodeOutput(ps)
+                engine.connect(ps, to: inMixer, format: phoneFormat)
             }
             engine.connect(inMixer, to: tuner, format: stereo)
             engine.connect(tuner, to: eq, format: stereo)

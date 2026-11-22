@@ -24,7 +24,21 @@ extension HostController {
         set { UserDefaults.standard.set(newValue, forKey: "tvVideoURL") }
     }
 
-    public var micLevels: [Float] { mic.isRunning ? mic.channelLevels : [] }
+    /// Starts the wireless-mic receiver if needed and hands this device a key.
+    public func startPhoneMic(pad: PadIdentity) throws -> PhoneMicSession {
+        guard mic.isRunning else { throw ErrorBody(code: "mic", message: "Turn the Mac's microphone on first.") }
+        let p = UInt16(port + 2)
+        try mic.phones.start(port: p)
+        let key = mic.phones.issueKey(for: pad.padID)
+        audit(pad.name, "started using this device as a mic")
+        return PhoneMicSession(port: Int(p), key: key.base64EncodedString())
+    }
+
+    public func stopPhoneMic(pad: PadIdentity) { mic.phones.revoke(pad.padID) }
+
+    var phonePitch: Float? { mic.phones.activeDevices.isEmpty ? nil : mic.phones.pitch.midi }
+
+    public var micLevels: [Float] { mic.isRunning ? mic.channelLevels + (mic.phones.activeDevices.isEmpty ? [] : [mic.phones.meter.value]) : [] }
 
     /// With one mic per singer, each singer is scored on their own input channel.
     func micScores(_ entry: QueueEntry) -> [RankedName]? {

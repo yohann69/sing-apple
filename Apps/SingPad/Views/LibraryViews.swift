@@ -398,6 +398,11 @@ struct PadSettingsView: View {
             } footer: {
                 Text("Translated on the Mac with on-device AI, shown under each line on this device.")
             }
+            Section {
+                Toggle(isOn: Binding(get: { model.phoneMicOn }, set: { _ in model.togglePhoneMic() })) {
+                    Label("Use this device as a mic", systemImage: "iphone.radiowaves.left.and.right")
+                }
+            } footer: { Text("Experimental: sends your voice to the Mac over Wi-Fi.") }
             if let me = model.currentSinger {
                 Section { NavigationLink { MyProfileView(singer: me) } label: { Label("My profile: \(me.name)", systemImage: "person.crop.circle") } }
             }

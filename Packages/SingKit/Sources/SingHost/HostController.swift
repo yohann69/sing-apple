@@ -429,13 +429,14 @@ public final class HostController: HostAPI {
         let cf = settings.playback.crossfadeSeconds
         playback.fade = cf > 0 ? max(0, min(1, min(playback.position / cf, (playback.duration - playback.position) / cf))) : 1
         let shift = Float(playback.keyShift)
-        scoreKeeper.add(time: t, sungMidi: mic.livePitch.midi.map { $0 - shift }, level: mic.level)
+        let sungNow = mic.livePitch.midi ?? phonePitch
+        scoreKeeper.add(time: t, sungMidi: sungNow.map { $0 - shift }, level: mic.level)
         if mic.channelCount > 1 {
             let levels = mic.channelLevels
             for c in 0..<mic.channelCount { channelKeepers[c].add(time: t, sungMidi: mic.channelPitch[c].midi.map { $0 - shift }, level: levels[c]) }
         }
         correctPitch(target: pitchTrack?.target(at: t).map { $0 + shift })
-        guard let sung = mic.livePitch.midi.map({ $0 - shift }) else { return }
+        guard let sung = sungNow.map({ $0 - shift }) else { return }
         let target = pitchTrack?.target(at: t)
         let folded = target.map { PitchTrack.foldOctave(sung, toward: $0) } ?? sung
         let hit = target.map { abs(folded - $0) < scoreTolerance } ?? false
