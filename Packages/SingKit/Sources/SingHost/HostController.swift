@@ -955,7 +955,7 @@ public final class HostController: HostAPI {
         }
         if let micError { return MicStatus(state: .failed, deviceName: mic.deviceName, message: micError) }
         guard mic.isRunning else { return MicStatus(state: .failed, deviceName: mic.deviceName, message: "The microphone is not running.") }
-        if let t = micStartedAt, Date.now.timeIntervalSince(t) > 2, mic.peakSinceStart == 0 {
+        if let t = mic.startedAt ?? micStartedAt, Date.now.timeIntervalSince(t) > 3, mic.peakSinceStart == 0 {
             return MicStatus(state: .silent, deviceName: mic.deviceName, message: "macOS is sending silence: the permission for this build of Sing! is stale. Click Reset microphone permission, then allow it again.")
         }
         return MicStatus(state: .running, deviceName: mic.deviceName, level: mic.level)

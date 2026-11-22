@@ -257,7 +257,13 @@ public final class MicEngine {
     private let eq = AVAudioUnitEQ(numberOfBands: 3)
     private let tuner = AVAudioUnitTimePitch()
     /// 0 disables the tuner so it adds no latency.
-    public var correctionStrength: Double = 0 { didSet { tuner.bypass = correctionStrength <= 0; if correctionStrength <= 0 { tuner.pitch = 0 } } }
+    public var correctionStrength: Double = 0 {
+        didSet {
+            tuner.bypass = correctionStrength <= 0
+            if correctionStrength <= 0 { tuner.pitch = 0 }
+            if (correctionStrength > 0) != (oldValue > 0), isRunning { stop(); try? start() }
+        }
+    }
     public var correctionCents: Float = 0 { didSet { tuner.pitch = max(-150, min(150, correctionCents)) } }
     private let inputMixer = AVAudioMixerNode()
     private var aggregate: AudioDeviceID?
@@ -297,6 +303,8 @@ public final class MicEngine {
     public let channelPitch = (0..<4).map { _ in LivePitch() }
     let channelMeters = (0..<4).map { _ in LevelMeter() }
     public private(set) var channelCount = 1
+    /// When the engine last (re)started, so a silent first moment is not mistaken for blocked access.
+    public private(set) var startedAt: Date?
     public var channelLevels: [Float] { channelMeters.prefix(channelCount).map(\.value) }
     /// Per-mic volume, used when the mics are mixed separately.
     public let mixGains = MixGains()
@@ -395,7 +403,9 @@ public final class MicEngine {
         let input = engine.inputNode
         let mixer = engine.mainMixerNode
         channelCount = max(1, min(4, Int(format.channelCount)))
-        let split = separateMics && format.channelCount > 1
+        // A pitch shifter cannot sit downstream of the live input, so pitch correction takes the same
+        // tap-and-replay path as separate mic volumes (about 40 ms more latency).
+        let split = (separateMics && format.channelCount > 1) || correctionStrength > 0
         let tapBlock = Self.tap(meter, pitch: livePitch, channels: Array(zip(channelMeters, channelPitch)), sampleRate: format.sampleRate, ring: split ? ring : nil, gains: mixGains)
         let mono = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: 1)!
         if split, splitSource == nil {
@@ -406,6 +416,7 @@ public final class MicEngine {
         if phoneSource == nil { phoneSource = AVAudioSourceNode(format: phoneFormat, renderBlock: Self.render(phones.ring)) }
         let phoneNode = phoneSource
         if let p = phoneNode, p.engine == nil { engine.attach(p) }
+        let useTuner = split
         let eq = self.eq, reverb = self.reverb, engine = self.engine, inMixer = self.inputMixer, attach = !configured
         let delay = self.delay, limiter = self.limiter, tuner = self.tuner
         tuner.bypass = correctionStrength <= 0
@@ -429,10 +440,15 @@ public final class MicEngine {
             }
             if let ps = phoneNode {
                 engine.disconnectNodeOutput(ps)
-                engine.connect(ps, to: mixer, format: phoneFormat)
+                engine.connect(ps, to: inMixer, format: phoneFormat)
             }
-            engine.connect(inMixer, to: tuner, format: stereo)
-            engine.connect(tuner, to: eq, format: stereo)
+            if useTuner {
+                engine.connect(inMixer, to: tuner, format: stereo)
+                engine.connect(tuner, to: eq, format: stereo)
+            } else {
+                engine.disconnectNodeOutput(tuner)
+                engine.connect(inMixer, to: eq, format: stereo)
+            }
             engine.connect(eq, to: delay, format: stereo)
             engine.connect(delay, to: reverb, format: stereo)
             engine.connect(reverb, to: limiter, format: stereo)
@@ -451,6 +467,7 @@ public final class MicEngine {
             throw error
         }
         isRunning = true
+        startedAt = .now
     }
 
     public func stop() {

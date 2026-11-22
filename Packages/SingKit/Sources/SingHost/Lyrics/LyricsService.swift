@@ -134,7 +134,12 @@ public final class LyricsService: Sendable {
                         return (reference.map { Self.matchTiming(l, to: $0) } ?? l, rank)
                     }
                 }
-                for await r in group { if let r { candidates.append(r) } }
+                // Word timing from any source is good enough to start singing; stop waiting for slower ones.
+                for await r in group {
+                    guard let r else { continue }
+                    candidates.append(r)
+                    if r.0.kind >= .word { group.cancelAll(); break }
+                }
             }
         }
         return candidates.max(by: { ($0.0.kind, $0.1) < ($1.0.kind, $1.1) })?.0
