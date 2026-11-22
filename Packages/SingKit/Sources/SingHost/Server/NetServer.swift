@@ -53,7 +53,7 @@ public struct HTTPResponse: Sendable {
     }
 
     var serialized: Data {
-        let reason = [200: "OK", 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 500: "Internal Server Error"][status] ?? "Status"
+        let reason = [200: "OK", 206: "Partial Content", 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 500: "Internal Server Error"][status] ?? "Status"
         var head = "HTTP/1.1 \(status) \(reason)\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.count)\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\n"
         for (k, v) in extraHeaders { head += "\(k): \(v)\r\n" }
         head += "\r\n"

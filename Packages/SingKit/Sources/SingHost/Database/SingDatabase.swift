@@ -148,6 +148,14 @@ public final class SingDatabase: Sendable {
                 t.column("json", .text).notNull()
             }
         }
+        m.registerMigration("v2-recordings") { db in
+            try db.alter(table: "recording") { t in
+                t.add(column: "createdAt", .datetime)
+                t.add(column: "durationMs", .integer).notNull().defaults(to: 0)
+                t.add(column: "shareToken", .text)
+                t.add(column: "kept", .boolean).notNull().defaults(to: false)
+            }
+        }
         return m
     }
 }

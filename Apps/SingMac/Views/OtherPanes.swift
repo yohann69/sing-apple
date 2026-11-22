@@ -204,6 +204,7 @@ struct RankCard: View {
 
 struct PadsPane: View {
     var host: HostController
+    @State private var pads: [PadInfo] = []
 
     var body: some View {
         ScrollView {
@@ -214,27 +215,21 @@ struct PadsPane: View {
                         Button("New guest code") { host.regenerateGuestCode() }
                     }
                 }
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Connected now").font(.headline)
-                    if host.connectedPads.isEmpty { Text("No pad connected").foregroundStyle(.secondary) }
-                    ForEach(host.connectedPads, id: \.padID) { p in
-                        HStack {
-                            Image(systemName: p.role == .host ? "crown.fill" : "person.fill")
-                            Text(p.name)
-                            Spacer()
-                            Text(p.role == .host ? "Host" : "Guest").foregroundStyle(.secondary)
-                        }
+                Form {
+                    PadListSection(pads: pads) { p in Task { await host.revokePad(p.id); pads = await host.padList() } }
+                    Section {
+                        Text("Address: \(host.hostJoinURL.replacingOccurrences(of: "sing://", with: "").components(separatedBy: "?").first ?? "")").font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                        Button("Unpair every device", role: .destructive) { Task { await host.revokeAllPads(); pads = await host.padList() } }
                     }
-                    Divider()
-                    Text("Address: \(host.hostJoinURL.replacingOccurrences(of: "sing://", with: "").components(separatedBy: "?").first ?? "")").font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                    Button("Sign out all pads", role: .destructive) { Task { await host.revokeAllPads() } }
                 }
-                .padding(18)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
+                .formStyle(.grouped)
+                .scrollDisabled(true)
+                .frame(minHeight: CGFloat(160 + max(1, pads.count) * 52))
             }
             .padding(24)
         }
         .navigationTitle("Pads")
+        .task(id: host.connectedPads.map(\.padID)) { pads = await host.padList() }
     }
 
     private func codeCard(title: String, subtitle: String, code: String, url: String, @ViewBuilder extra: () -> some View = { EmptyView() }) -> some View {
@@ -253,5 +248,42 @@ struct PadsPane: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
+    }
+}
+
+struct StoragePane: View {
+    var host: HostController
+    @State private var report: StorageReport?
+    @State private var pending: ClearCacheRequest?
+    @State private var preview: ClearCacheResult?
+
+    var body: some View {
+        Form {
+            if let report {
+                StorageDashboard(report: report) { req in
+                    Task {
+                        var dry = req
+                        dry.dryRun = true
+                        preview = await host.clearCache(dry)
+                        pending = req
+                    }
+                }
+            } else {
+                ProgressView("Measuring…")
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Storage")
+        .task { report = await host.storageReport() }
+        .refreshable { report = await host.storageReport() }
+        .confirmationDialog("Free \(ByteCountFormatter.string(fromByteCount: preview?.freedBytes ?? 0, countStyle: .file))?",
+                            isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }), titleVisibility: .visible) {
+            Button("Clear", role: .destructive) {
+                guard let req = pending else { return }
+                Task { _ = await host.clearCache(req); report = await host.storageReport() }
+            }
+        } message: {
+            Text(preview.map { "\($0.songs) songs are affected. They are processed again when queued." } ?? "")
+        }
     }
 }

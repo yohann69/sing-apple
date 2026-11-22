@@ -199,14 +199,27 @@ function queueView() {
   return `<h1>Queue</h1><div class="card">${state?.queue?.map(rowQueue).join("") || `<div class="empty">The queue is empty.</div>`}</div>`;
 }
 
+let ratings = {}, ratingsFor = null, favOnly = false;
+async function loadRatings() {
+  if (!store.singer || ratingsFor === store.singer) return;
+  ratingsFor = store.singer;
+  try { ratings = Object.fromEntries((await api("/v1/ratings?singer=" + store.singer)).map(r => [r.songID, r])) } catch { ratings = {} }
+  drawResults();
+}
+function rate(songID, change) {
+  if (!store.singer) return toast("Pick who you are first");
+  const r = change(ratings[songID] || { songID, singerID: store.singer, value: 0, favorite: false, neverSuggest: false });
+  ratings[songID] = r;
+  api("/v1/ratings", { method: "POST", body: JSON.stringify(r) }).catch(e => toast(e.message));
+}
 function searchView() {
-  return `<h1>Search</h1><input id="q" type="search" placeholder="Any song or artist" autocomplete="off"><div id="results"></div>`;
+  return `<h1>Search</h1><input id="q" type="search" placeholder="Any song or artist" autocomplete="off"><div class="chips" style="margin-top:10px"><button class="chip ${favOnly ? "on" : ""}" id="favs">♥ Favorites</button></div><div id="results"></div>`;
 }
 
 function drawResults() {
   const el = $("#results"); if (!el) return;
   const { songs, catalog } = lastResults;
-  el.innerHTML = (songs.length ? `<h2>In the library</h2><div class="card">${songs.map(s => `<div class="row" data-song="${s.id}">${artImg(s)}<div class="grow"><div class="title">${esc(s.title)}</div><div class="meta">${esc(s.artist)}</div></div><span class="pill ${s.readiness === "ready" ? "ok" : ""}">${s.readiness === "ready" ? "Ready" : "Preparing"}</span></div>`).join("")}</div>` : "")
+  el.innerHTML = (songs.length ? `<h2>In the library</h2><div class="card">${songs.map(s => `<div class="row" data-song="${s.id}">${artImg(s)}<div class="grow"><div class="title">${esc(s.title)}${ratings[s.id]?.favorite ? ' <span style="color:#FF6B9A">♥</span>' : ""}</div><div class="meta">${esc(s.artist)}</div></div><span class="pill ${s.readiness === "ready" ? "ok" : ""}">${s.readiness === "ready" ? "Ready" : "Preparing"}</span></div>`).join("")}</div>` : "")
     + (catalog.length ? `<h2>Not in the library yet</h2><div class="card">${catalog.slice(0, 15).map(t => `<div class="row" data-cat="${esc(t.id)}">${t.artworkURL ? `<img class="art" src="${esc(t.artworkURL)}" alt="" loading="lazy">` : `<div class="art"></div>`}<div class="grow"><div class="title">${esc(t.title)}</div><div class="meta">${esc(t.artist)}</div></div><span class="pill">Request</span></div>`).join("")}</div>` : "")
     || ($("#q")?.value ? `<div class="empty">Nothing found.</div>` : `<div class="empty">Type a song or an artist.</div>`);
   bind();
@@ -220,6 +233,7 @@ function meView() {
   <h2>Translate the lyrics</h2><div class="card"><select id="lang" style="width:100%;min-height:48px;border-radius:999px;background:transparent;color:var(--text);border:1px solid var(--stroke);padding:0 14px;font:inherit">
     <option value="">Off</option>${languages.map(l => `<option value="${esc(l.code)}" ${l.code === store.lang ? "selected" : ""}>${esc(l.name)}</option>`).join("")}</select>
     <p class="sub" style="margin-bottom:0">Translated on the Mac with on-device AI, shown under each line on your phone.</p></div>
+  <h2>My recordings</h2><div class="card" id="recs"><p class="sub" style="margin:0">${me ? "Loading…" : "Pick your name to see your recordings."}</p></div>
   <div style="height:16px"></div><button class="btn ghost" id="leave">Leave this party</button>`;
 }
 
@@ -235,7 +249,23 @@ function bind() {
   };
   const langSel = $("#lang"); if (langSel) langSel.onchange = () => { store.lang = langSel.value; lyricsFor = null; loadLyrics(); toast(langSel.value ? "Lyrics will be translated" : "Translation off") };
   if (tab === "me" && !languages.length && store.token) api("/v1/translation/languages").then(l => { languages = l; if (tab === "me") paint() }).catch(() => {});
+  const recs = $("#recs");
+  if (recs && store.singer && !recs._loaded) {
+    recs._loaded = true;
+    api("/v1/recordings?singer=" + store.singer).then(list => {
+      recs.innerHTML = list.length ? list.slice(0, 20).map(r => `<div style="padding:8px 0"><div class="title">${esc(r.songTitle)}</div><div class="meta">${new Date(r.recordedAt).toLocaleDateString()}${r.score != null ? " · " + r.score + " pts" : ""} · <a style="color:var(--accent2)" href="/r/${esc(r.shareToken)}">Share link</a></div><audio controls preload="none" style="width:100%;margin-top:6px" src="/r/${esc(r.shareToken)}/audio"></audio></div>`).join("")
+        : `<p class="sub" style="margin:0">Nothing recorded yet. The host can turn recording on.</p>`;
+    }).catch(() => { recs.innerHTML = `<p class="sub" style="margin:0">Could not load recordings.</p>` });
+  }
   const leave = $("#leave"); if (leave) leave.onclick = () => { store.token = null; ws?.close(); state = null; render() };
+  const favs = $("#favs");
+  if (favs) favs.onclick = async () => {
+    favOnly = !favOnly; favs.classList.toggle("on", favOnly);
+    if (favOnly) { if (!store.singer) { favOnly = false; favs.classList.remove("on"); return toast("Pick who you are first") }
+      lastResults = await api("/v1/songs?q=&favorites=" + store.singer).catch(() => ({ songs: [], catalog: [] })); drawResults() }
+    else { $("#q").value = ""; lastResults = { songs: [], catalog: [] }; drawResults() }
+  };
+  if (tab === "search") loadRatings();
   const q = $("#q");
   if (q && !q._bound) {
     q._bound = true;
@@ -254,9 +284,12 @@ function openSong(s) {
   if (!s) return;
   const picked = new Set(store.singer ? [store.singer] : []);
   openSheet(`<div class="now">${artImg(s)}<div class="grow"><div class="title" style="font-size:20px">${esc(s.title)}</div><div class="meta">${esc(s.artist)} · ${fmt(s.durationMs)}</div></div></div>
+    <div class="chips"><button class="chip ${ratings[s.id]?.favorite ? "on" : ""}" id="fav">♥ Favorite</button><button class="chip ${ratings[s.id]?.neverSuggest ? "on" : ""}" id="never">Never suggest</button></div>
     <p class="sub">${s.isDuet ? "Duet: pick two singers" : "Who sings?"}</p>
     <div class="chips">${state.singers.map(x => `<button class="chip ${picked.has(x.id) ? "on" : ""}" data-pick="${x.id}"><span class="dot" style="background:${esc(x.colorHex)}"></span>${esc(x.name)}</button>`).join("")}</div>
     <button class="btn" id="queueIt">Add to the queue</button>`);
+  $("#fav").onclick = e => { rate(s.id, r => ({ ...r, favorite: !r.favorite })); e.target.classList.toggle("on"); drawResults() };
+  $("#never").onclick = e => { rate(s.id, r => ({ ...r, neverSuggest: !r.neverSuggest })); e.target.classList.toggle("on") };
   document.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => { const id = Number(b.dataset.pick); picked.has(id) ? picked.delete(id) : picked.add(id); b.classList.toggle("on") });
   $("#queueIt").onclick = () => { send("enqueue", { songID: s.id, singerIDs: [...picked], playNext: false }); closeSheet(); toast(s.title + " is in the queue"); tab = "queue"; paint() };
 }
@@ -280,7 +313,8 @@ setInterval(() => {
   const line = i >= 0 ? lyrics.lines[i].segments.map(s => s.text + (s.endsWord ? " " : "")).join("") : "♪";
   const next = lyrics.lines[i + 1] ? lyrics.lines[i + 1].segments.map(s => s.text + (s.endsWord ? " " : "")).join("") : "";
   const tr = i >= 0 ? lyrics.lines[i].translation : null;
-  const html = esc(line) + (tr ? `<small style="font-style:italic;color:var(--accent2)">${esc(tr)}</small>` : "") + (next ? `<small>${esc(next)}</small>` : "");
+  const ro = i >= 0 ? lyrics.lines[i].romanization : null;
+  const html = esc(line) + (ro ? `<small style="opacity:.8">${esc(ro)}</small>` : "") + (tr ? `<small style="font-style:italic;color:var(--accent2)">${esc(tr)}</small>` : "") + (next ? `<small>${esc(next)}</small>` : "");
   if (el.innerHTML !== html) el.innerHTML = html;
 }, 200);
 

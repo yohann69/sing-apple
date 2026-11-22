@@ -1,3 +1,4 @@
+#if !os(tvOS)
 import SwiftUI
 import SingCore
 
@@ -60,6 +61,9 @@ public struct TVDisplaySettingsSections: View {
             Toggle("Score reveal", isOn: $tv.showScoreReveal)
             Toggle("Score details", isOn: $tv.showScoreDetails)
             Toggle("Confetti", isOn: $tv.showConfetti)
+            Toggle("Tonight's leaderboard between songs", isOn: $tv.showLeaderboard)
+            Toggle("Latin spelling under other scripts", isOn: $tv.showRomanization)
+            Toggle("Applause meter after each song", isOn: $tv.showApplause)
             VStack(alignment: .leading) {
                 Text("Results stay on screen for \(Int(tv.resultSeconds)) s")
                 Slider(value: $tv.resultSeconds, in: 7...30, step: 1)
@@ -84,10 +88,32 @@ public struct PartySettingsSections: View {
             Toggle("Countdown before each song", isOn: $settings.playback.countdownBetweenSongs)
             Toggle("Play the next song automatically", isOn: $settings.playback.autoAdvance)
             Toggle("Play the original when stems are not ready", isOn: $settings.playback.playOriginalWhenNotReady)
+            Toggle("Singers take turns in the queue", isOn: $settings.queue.fairRotation)
+            Toggle("Queue a crowd favourite when the queue runs dry", isOn: $settings.queue.autoFill)
+            Picker("Scoring", selection: $settings.playback.difficulty) {
+                Text("Easy").tag("easy")
+                Text("Normal").tag("normal")
+                Text("Hard").tag("hard")
+            }
+            Toggle("Even out loudness between songs", isOn: $settings.playback.normalizeLoudness)
+            Toggle("Turn mics down when feedback howls", isOn: $settings.playback.feedbackProtection)
             VStack(alignment: .leading) {
                 Text("Default guide vocal: \(Int(settings.playback.defaultGuideVocal * 100))%")
                 Slider(value: $settings.playback.defaultGuideVocal, in: 0...1)
             }
+        }
+        Section {
+            Toggle("Record every performance", isOn: $settings.playback.recordPerformances)
+            if settings.playback.recordPerformances {
+                Picker("Keep recordings", selection: $settings.playback.keepRecordingsDays) {
+                    Text("7 days").tag(7.0)
+                    Text("30 days").tag(30.0)
+                    Text("1 year").tag(365.0)
+                    Text("Forever").tag(0.0)
+                }
+            }
+        } header: { Text("Recordings") } footer: {
+            Text("Music and voice are recorded on the Mac only. Singers can listen back on their device and take a QR link home; kept recordings are never deleted automatically.")
         }
         Section("Theme") {
             Picker("Colors", selection: $settings.theme.preset) {
@@ -98,3 +124,5 @@ public struct PartySettingsSections: View {
         }
     }
 }
+
+#endif

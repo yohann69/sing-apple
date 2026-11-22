@@ -151,3 +151,20 @@ public struct Lyrics: Codable, Sendable, Hashable {
         return copy
     }
 }
+
+extension Lyrics {
+    /// Fills `romanization` for lines written in a non-Latin script (Japanese, Chinese, Korean, Cyrillic, Greek…).
+    public func romanized() -> Lyrics {
+        var copy = self
+        for i in copy.lines.indices where copy.lines[i].romanization == nil {
+            let text = copy.lines[i].text
+            guard text.unicodeScalars.contains(where: { $0.properties.isAlphabetic && $0.value > 0x24F }) else { continue }
+            let m = NSMutableString(string: text)
+            CFStringTransform(m, nil, kCFStringTransformToLatin, false)
+            CFStringTransform(m, nil, kCFStringTransformStripCombiningMarks, false)
+            let out = (m as String).trimmingCharacters(in: .whitespaces)
+            if out != text, !out.isEmpty { copy.lines[i].romanization = out }
+        }
+        return copy
+    }
+}

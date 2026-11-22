@@ -144,6 +144,9 @@ public final class LibraryStore: Sendable {
             if let decade = filters.decade { request = request.filter(Column("year") >= decade && Column("year") < decade + 10) }
             if let genre = filters.genre { request = request.filter(Column("genre") == genre) }
             if let lang = filters.language { request = request.filter(Column("language") == lang) }
+            if let fav = filters.favoritesOf {
+                request = request.filter(sql: "id IN (SELECT songId FROM rating WHERE favorite = 1 AND singerId = ?)", arguments: [fav])
+            }
             guard !q.isEmpty else {
                 return try request.order(Column("artist"), Column("title")).limit(limit).fetchAll(db)
             }

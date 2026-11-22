@@ -8,7 +8,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "0.2.0"
     OTHER_SWIFT_FLAGS: "-Xfrontend -disable-dynamic-actor-isolation"
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: ""
@@ -16,6 +16,33 @@ packages:
   SingKit:
     path: Packages/SingKit
 targets:
+  SingTV:
+    type: application
+    platform: tvOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: Apps/SingTV
+    dependencies:
+      - package: SingKit
+        product: SingCore
+      - package: SingKit
+        product: SingDesign
+      - package: SingKit
+        product: SingClient
+    info:
+      path: Apps/SingTV/Info.plist
+      properties:
+        CFBundleDisplayName: Sing!
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        NSLocalNetworkUsageDescription: Sing! shows the lyrics from the karaoke Mac on this TV.
+        NSBonjourServices: [_sing._tcp]
+    settings:
+      base:
+        PRODUCT_NAME: Sing
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.yohann69.sing.tv
+        CODE_SIGN_STYLE: Automatic
   SingMac:
     type: application
     platform: macOS
@@ -71,6 +98,7 @@ targets:
         NSLocalNetworkUsageDescription: Sing! finds and controls the karaoke Mac on your network.
         NSBonjourServices: [_sing._tcp]
         NSCameraUsageDescription: Scan the QR code on the TV to join the party.
+        NSMicrophoneUsageDescription: Hum a tune to find the song.
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
         CFBundleURLTypes:

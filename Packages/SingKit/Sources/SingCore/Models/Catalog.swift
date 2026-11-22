@@ -11,8 +11,10 @@ public struct CatalogTrack: Codable, Sendable, Hashable, Identifiable {
     public var isrc: String?
     public var sources: [String]
     public var year: Int?
+    public var explicit: Bool?
 
-    public init(id: String, title: String, artist: String, album: String?, durationMs: Int, artworkURL: String?, isrc: String?, sources: [String], year: Int?) {
+    public init(id: String, title: String, artist: String, album: String?, durationMs: Int, artworkURL: String?, isrc: String?, sources: [String], year: Int?, explicit: Bool? = nil) {
+        self.explicit = explicit
         self.id = id
         self.title = title
         self.artist = artist
@@ -56,6 +58,7 @@ public enum CatalogSearch {
             var trackTimeMillis: Int?
             var artworkUrl100: String?
             var releaseDate: String?
+            var trackExplicitness: String?
         }
         var results: [R]
     }
@@ -70,6 +73,7 @@ public enum CatalogSearch {
             var duration: Int?
             var artist: A
             var album: Al?
+            var explicit_lyrics: Bool?
         }
         var data: [T]?
     }
@@ -86,7 +90,7 @@ public enum CatalogSearch {
             return r.results.compactMap { t in
                 guard let id = t.trackId, let name = t.trackName, let artist = t.artistName else { return nil }
                 return CatalogTrack(id: "am:\(id)", title: name, artist: artist, album: t.collectionName, durationMs: t.trackTimeMillis ?? 0,
-                                    artworkURL: t.artworkUrl100?.replacingOccurrences(of: "100x100", with: "600x600"), isrc: nil, sources: ["Apple Music"], year: t.releaseDate.flatMap { Int($0.prefix(4)) })
+                                    artworkURL: t.artworkUrl100?.replacingOccurrences(of: "100x100", with: "600x600"), isrc: nil, sources: ["Apple Music"], year: t.releaseDate.flatMap { Int($0.prefix(4)) }, explicit: t.trackExplicitness == "explicit")
             }
         }()
         async let deezer: [CatalogTrack] = {
@@ -95,7 +99,7 @@ public enum CatalogSearch {
             guard let (d, _) = try? await session.data(from: c.url!), let r = try? JSONDecoder().decode(Deezer.self, from: d) else { return [] }
             return (r.data ?? []).map { t in
                 CatalogTrack(id: "dz:\(t.id)", title: t.title, artist: t.artist.name, album: t.album?.title, durationMs: (t.duration ?? 0) * 1000,
-                             artworkURL: t.album?.cover_big, isrc: t.isrc, sources: ["Deezer"], year: nil)
+                             artworkURL: t.album?.cover_big, isrc: t.isrc, sources: ["Deezer"], year: nil, explicit: t.explicit_lyrics)
             }
         }()
         return merge(await apple, await deezer)
@@ -118,6 +122,7 @@ public enum CatalogSearch {
                     out[j].isrc = out[j].isrc ?? t.isrc
                     out[j].year = out[j].year ?? t.year
                     if out[j].durationMs == 0 { out[j].durationMs = t.durationMs }
+                    if t.explicit == true { out[j].explicit = true }
                 } else {
                     index[k] = out.count
                     out.append(t)

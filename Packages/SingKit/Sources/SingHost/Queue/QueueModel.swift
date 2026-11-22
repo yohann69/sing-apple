@@ -23,14 +23,39 @@ public struct QueueModel: Sendable, Equatable {
         self.entries = entries
     }
 
-    public mutating func add(_ entry: QueueEntry, playNext: Bool = false, maxPerSinger: Int = 0) throws {
+    public mutating func add(_ entry: QueueEntry, playNext: Bool = false, maxPerSinger: Int = 0, fairRotation: Bool = false) throws {
         if maxPerSinger > 0 {
             for singer in entry.singers {
                 let count = entries.filter { $0.singers.contains { $0.id == singer.id } }.count
                 if count >= maxPerSinger { throw QueueError.limitReached(maxPerSinger) }
             }
         }
-        if playNext { entries.insert(entry, at: 0) } else { entries.append(entry) }
+        if playNext {
+            entries.insert(entry, at: 0)
+        } else if fairRotation {
+            entries.insert(entry, at: fairIndex(for: entry))
+        } else {
+            entries.append(entry)
+        }
+    }
+
+    /// Round-robin slot: after every other singer's song of the same round.
+    func fairIndex(for entry: QueueEntry) -> Int {
+        let key = Self.rotationKey(entry)
+        let round = entries.filter { Self.rotationKey($0) == key }.count
+        var seen: [String: Int] = [:]
+        for (i, e) in entries.enumerated() {
+            let k = Self.rotationKey(e)
+            let r = seen[k, default: 0]
+            seen[k] = r + 1
+            if r > round { return i }
+        }
+        return entries.count
+    }
+
+    static func rotationKey(_ e: QueueEntry) -> String {
+        if !e.singers.isEmpty { return e.singers.map { String($0.id) }.sorted().joined(separator: "+") }
+        return e.addedBy ?? "anyone"
     }
 
     @discardableResult

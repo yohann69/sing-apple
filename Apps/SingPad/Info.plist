@@ -39,6 +39,8 @@
 	<string>Scan the QR code on the TV to join the party.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Sing! finds and controls the karaoke Mac on your network.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Hum a tune to find the song.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

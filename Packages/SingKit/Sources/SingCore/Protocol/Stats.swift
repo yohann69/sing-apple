@@ -94,3 +94,34 @@ public struct SingerStats: Codable, Sendable, Hashable {
         self.recent = recent
     }
 }
+
+/// End-of-party summary shown on the TV and the pads.
+public struct PartyRecap: Codable, Sendable, Hashable {
+    public var name: String?
+    public var startedAt: Date
+    public var endedAt: Date
+    public var songs: Int
+    public var minutes: Int
+    public var singers: Int
+    public var topSinger: RankedName?
+    public var bestScore: RankedName?
+    public var bestSong: String?
+    public var topArtist: String?
+    public var highlights: [String]
+    /// A short mix of every recorded performance of the night, when recording was on.
+    public var reelURL: String?
+
+    public init(name: String?, startedAt: Date, endedAt: Date, songs: Int, minutes: Int, singers: Int, topSinger: RankedName?, bestScore: RankedName?, bestSong: String?, topArtist: String?, highlights: [String]) {
+        self.name = name
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.songs = songs
+        self.minutes = minutes
+        self.singers = singers
+        self.topSinger = topSinger
+        self.bestScore = bestScore
+        self.bestSong = bestSong
+        self.topArtist = topArtist
+        self.highlights = highlights
+    }
+}

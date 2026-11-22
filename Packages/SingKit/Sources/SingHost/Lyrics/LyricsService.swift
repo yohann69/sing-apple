@@ -17,6 +17,14 @@ public final class LyricsService: Sendable {
         return try? JSONDecoder().decode(Lyrics.self, from: data)
     }
 
+    /// Lyrics fixed by hand in the sync editor; providers never replace them unless asked.
+    public func saveManual(_ song: SongRecord, _ lyrics: Lyrics) throws {
+        var l = lyrics
+        l.source = .manual
+        try FileManager.default.createDirectory(at: paths.songCache(song.audioHash), withIntermediateDirectories: true)
+        try JSONEncoder().encode(l).write(to: paths.lyrics(song.audioHash))
+    }
+
     actor InFlight {
         var tasks: [String: Task<Lyrics?, Never>] = [:]
         func run(_ key: String, _ body: @escaping @Sendable () async -> Lyrics?) async -> Lyrics? {
@@ -44,6 +52,7 @@ public final class LyricsService: Sendable {
     public func resolve(_ song: SongRecord, refresh: Bool = false) async -> Lyrics? {
         let undiarized = !FileManager.default.fileExists(atPath: paths.songCache(song.audioHash).appendingPathComponent("diarized").path)
             && FileManager.default.fileExists(atPath: paths.vocals(song.audioHash).path)
+        if !refresh, let c = cached(song), c.source == .manual { return c }
         if !refresh, let c = cached(song), !undiarized || c.isDuet, c.kind >= .word || (!canAlign(song) && c.source != .embedded) { return c }
         return await inFlight.run(song.audioHash) {
             var best = refresh ? nil : self.cached(song)

@@ -97,8 +97,11 @@ public struct SearchFilters: Codable, Sendable, Hashable {
     public var decade: Int?
     public var genre: String?
     public var language: String?
+    /// Only songs this singer marked as favorite.
+    public var favoritesOf: SingerID?
 
-    public init(readyOnly: Bool = false, duetOnly: Bool = false, decade: Int? = nil, genre: String? = nil, language: String? = nil) {
+    public init(readyOnly: Bool = false, duetOnly: Bool = false, decade: Int? = nil, genre: String? = nil, language: String? = nil, favoritesOf: SingerID? = nil) {
+        self.favoritesOf = favoritesOf
         self.readyOnly = readyOnly
         self.duetOnly = duetOnly
         self.decade = decade
@@ -129,6 +132,12 @@ public struct LiveState: Codable, Sendable, Hashable {
     public var requests: [SongRequest] = []
     public var mic: MicStatus? = nil
     public var result: PerformanceResult? = nil
+    /// Tonight's best scores, for the TV between songs.
+    public var leaderboard: [RankedName]? = nil
+    /// Set for a while after the host ends the party.
+    public var recap: PartyRecap? = nil
+    /// The guest join link the TV shows, for screens other than the Mac's own.
+    public var joinURL: String? = nil
     /// Separation progress keyed by song id as a string, so JSON keeps an object.
     public var preparingByID: [String: Double]
 
@@ -234,10 +243,17 @@ public enum ClientMessage: Sendable {
     case updateSettings(SingSettings)
     case request(Request)
     case dismissRequest(id: String)
+    case setKey(Int)
+    case setTempo(Double)
+    case setMicPreset(String)
+    /// Moves the current song's lyrics earlier (negative) or later, and remembers it for the song.
+    case setLyricOffset(ms: Int)
+    /// Practice loop between two song times; nil clears it.
+    case setLoop(Loop)
     case ping
 
-    public struct Enqueue: Codable, Sendable { public var songID: SongID; public var singerIDs: [SingerID]; public var playNext: Bool
-        public init(songID: SongID, singerIDs: [SingerID], playNext: Bool = false) { self.songID = songID; self.singerIDs = singerIDs; self.playNext = playNext } }
+    public struct Enqueue: Codable, Sendable { public var songID: SongID; public var singerIDs: [SingerID]; public var playNext: Bool; public var battle: Bool?
+        public init(songID: SongID, singerIDs: [SingerID], playNext: Bool = false, battle: Bool? = nil) { self.songID = songID; self.singerIDs = singerIDs; self.playNext = playNext; self.battle = battle } }
     public struct Request: Codable, Sendable { public var track: CatalogTrack; public var singerIDs: [SingerID]
         public init(track: CatalogTrack, singerIDs: [SingerID]) { self.track = track; self.singerIDs = singerIDs } }
     public struct Move: Codable, Sendable { public var entryID: String; public var toIndex: Int
@@ -247,6 +263,11 @@ public enum ClientMessage: Sendable {
     private struct Seek: Codable { var positionMs: Int }
     private struct Value: Codable { var value: Double }
     private struct Command: Codable { var command: TransportCommand }
+    private struct Semitones: Codable { var semitones: Int }
+    private struct Preset: Codable { var preset: String }
+    private struct Offset: Codable { var ms: Int }
+    public struct Loop: Codable, Sendable { public var startMs: Int?; public var endMs: Int?
+        public init(startMs: Int?, endMs: Int?) { self.startMs = startMs; self.endMs = endMs } }
 }
 
 extension ClientMessage: Codable {
@@ -265,6 +286,11 @@ extension ClientMessage: Codable {
         case "updateSettings": self = .updateSettings(try c.decode(SingSettings.self, forKey: .data))
         case "request": self = .request(try c.decode(Request.self, forKey: .data))
         case "dismissRequest": self = .dismissRequest(id: try c.decode(EntryRef.self, forKey: .data).entryID)
+        case "setKey": self = .setKey(try c.decode(Semitones.self, forKey: .data).semitones)
+        case "setTempo": self = .setTempo(try c.decode(Value.self, forKey: .data).value)
+        case "setMicPreset": self = .setMicPreset(try c.decode(Preset.self, forKey: .data).preset)
+        case "setLyricOffset": self = .setLyricOffset(ms: try c.decode(Offset.self, forKey: .data).ms)
+        case "setLoop": self = .setLoop(try c.decode(Loop.self, forKey: .data))
         case "ping": self = .ping
         case let other: throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "unknown type \(other)")
         }
@@ -283,6 +309,11 @@ extension ClientMessage: Codable {
         case .updateSettings(let v): try c.encode("updateSettings", forKey: .type); try c.encode(v, forKey: .data)
         case .request(let v): try c.encode("request", forKey: .type); try c.encode(v, forKey: .data)
         case .dismissRequest(let id): try c.encode("dismissRequest", forKey: .type); try c.encode(EntryRef(entryID: id), forKey: .data)
+        case .setKey(let v): try c.encode("setKey", forKey: .type); try c.encode(Semitones(semitones: v), forKey: .data)
+        case .setTempo(let v): try c.encode("setTempo", forKey: .type); try c.encode(Value(value: v), forKey: .data)
+        case .setMicPreset(let v): try c.encode("setMicPreset", forKey: .type); try c.encode(Preset(preset: v), forKey: .data)
+        case .setLyricOffset(let v): try c.encode("setLyricOffset", forKey: .type); try c.encode(Offset(ms: v), forKey: .data)
+        case .setLoop(let v): try c.encode("setLoop", forKey: .type); try c.encode(v, forKey: .data)
         case .ping: try c.encode("ping", forKey: .type)
         }
     }

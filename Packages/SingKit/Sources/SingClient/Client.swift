@@ -43,6 +43,8 @@ public struct ClientError: Error, LocalizedError, Sendable {
 public struct SingAPIClient: Sendable {
     public var endpoint: ServerEndpoint
     public var token: String?
+    /// From `unlockOwner`, for owner-only calls when the Mac has an owner PIN.
+    public var ownerToken: String?
     let session: URLSession
 
     public init(endpoint: ServerEndpoint, token: String? = nil) {
@@ -67,6 +69,9 @@ public struct SingAPIClient: Sendable {
         if filters.readyOnly { items.append(URLQueryItem(name: "ready", value: "1")) }
         if filters.duetOnly { items.append(URLQueryItem(name: "duet", value: "1")) }
         if let d = filters.decade { items.append(URLQueryItem(name: "decade", value: String(d))) }
+        if let g = filters.genre { items.append(URLQueryItem(name: "genre", value: g)) }
+        if let l = filters.language { items.append(URLQueryItem(name: "language", value: l)) }
+        if let f = filters.favoritesOf { items.append(URLQueryItem(name: "favorites", value: String(f))) }
         return try await get("v1/songs", query: items)
     }
 
@@ -84,6 +89,60 @@ public struct SingAPIClient: Sendable {
     public func singerStats(_ id: SingerID) async throws -> SingerStats { try await get("v1/stats/singers/\(id)") }
     public func suggestions(singer: SingerID?) async throws -> [Suggestion] {
         try await get("v1/suggestions", query: singer.map { [URLQueryItem(name: "singer", value: String($0))] } ?? [])
+    }
+
+    public func ratings(singer: SingerID) async throws -> [SongRating] {
+        try await get("v1/ratings", query: [URLQueryItem(name: "singer", value: String(singer))])
+    }
+    @discardableResult
+    public func rate(_ r: SongRating) async throws -> SongRating { try await send("v1/ratings", method: "POST", body: r) }
+
+    public func unlockOwner(pin: String) async throws -> OwnerSession { try await send("v1/owner/unlock", method: "POST", body: OwnerUnlock(pin: pin)) }
+    public func ownerOverview() async throws -> OwnerOverview { try await get("v1/owner") }
+    public func storage() async throws -> StorageReport { try await get("v1/owner/storage") }
+    public func clearCache(_ req: ClearCacheRequest) async throws -> ClearCacheResult { try await send("v1/owner/storage/clear", method: "POST", body: req) }
+    @discardableResult
+    public func updateOwnerSettings(_ s: SingSettings) async throws -> SingSettings { try await send("v1/owner/settings", method: "PUT", body: s) }
+    public func unpair(padID: String) async throws {
+        let _: [String: Bool] = try await send("v1/owner/pads/\(padID)", method: "DELETE", body: [String: String]())
+    }
+
+    /// Sends a short hummed recording; the Mac answers with the songs whose melody matches.
+    public func humSearch(_ audio: Data) async throws -> [SongSummary] {
+        var r = request(endpoint.baseURL.appendingPathComponent("v1/hum"), method: "POST")
+        r.httpBody = audio
+        r.timeoutInterval = 30
+        r.setValue("audio/mp4", forHTTPHeaderField: "Content-Type")
+        let (data, resp) = try await session.data(for: r)
+        try check(resp, data)
+        return try SingProtocol.decoder().decode(SearchResponse.self, from: data).songs
+    }
+
+    public func displayPitch(_ id: SongID) async throws -> PitchTrack { try await get("v1/songs/\(id)/pitch") }
+
+    public func recap() async throws -> PartyRecap { try await get("v1/recap") }
+    public func songSettings(_ id: SongID) async throws -> SongSettings { try await get("v1/songs/\(id)/settings") }
+    @discardableResult
+    public func updateSongSettings(_ id: SongID, _ s: SongSettings) async throws -> SongSettings { try await send("v1/songs/\(id)/settings", method: "PUT", body: s) }
+
+    public func recordings(singer: SingerID?) async throws -> [RecordingInfo] {
+        try await get("v1/recordings", query: singer.map { [URLQueryItem(name: "singer", value: String($0))] } ?? [])
+    }
+    /// Token in the query so AVPlayer can stream it.
+    public func recordingAudioURL(_ id: Int64) -> URL {
+        var c = URLComponents(url: endpoint.baseURL.appendingPathComponent("v1/recordings/\(id)/audio"), resolvingAgainstBaseURL: false)!
+        c.queryItems = [URLQueryItem(name: "token", value: token)]
+        return c.url!
+    }
+    public func shareURL(_ r: RecordingInfo) -> String { endpoint.baseURL.appendingPathComponent("r/\(r.shareToken)").absoluteString }
+    public func keepRecording(_ id: Int64, _ keep: Bool) async throws {
+        let _: [String: Bool] = try await send("v1/recordings/\(id)/\(keep ? "keep" : "unkeep")", method: "POST", body: [String: String]())
+    }
+    public func deleteRecording(_ id: Int64) async throws {
+        let _: [String: Bool] = try await send("v1/recordings/\(id)", method: "DELETE", body: [String: String]())
+    }
+    public func replayRecording(_ id: Int64) async throws {
+        let _: [String: Bool] = try await send("v1/recordings/\(id)/replay", method: "POST", body: [String: String]())
     }
 
     public func artworkURL(_ id: SongID) -> URL { endpoint.baseURL.appendingPathComponent("v1/songs/\(id)/artwork") }
@@ -105,6 +164,7 @@ public struct SingAPIClient: Sendable {
         var r = URLRequest(url: url)
         r.httpMethod = method
         if let token { r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        if let ownerToken { r.setValue(ownerToken, forHTTPHeaderField: "X-Sing-Owner") }
         return r
     }
 

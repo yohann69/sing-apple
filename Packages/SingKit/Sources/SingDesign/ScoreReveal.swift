@@ -26,6 +26,19 @@ struct ScoreRevealStage: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if let url = result.shareURL {
+                    HStack(spacing: 16 * scale) {
+                        VStack(alignment: .trailing, spacing: 4 * scale) {
+                            Text("Take your performance home").font(.system(size: 24 * scale, weight: .semibold))
+                            Text("Scan on the same Wi-Fi").font(.system(size: 19 * scale)).opacity(0.7)
+                        }
+                        QRCodeView(url).padding(10 * scale).background(.white, in: RoundedRectangle(cornerRadius: 16 * scale)).frame(width: 150 * scale, height: 150 * scale)
+                    }
+                    .foregroundStyle(theme.text)
+                    .padding(40 * scale)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .opacity(appear(elapsed, at: 1.5))
+                }
             }
         }
     }
@@ -46,6 +59,28 @@ struct ScoreRevealStage: View {
             }
             .font(.system(size: 32 * scale, weight: .bold))
             .reveal(appear(elapsed, at: 0.2))
+            if let clap = result.applause, settings.showApplause {
+                HStack(spacing: 12 * scale) {
+                    Text("👏")
+                    Capsule().fill(.white.opacity(0.15)).frame(width: 260 * scale, height: 14 * scale)
+                        .overlay(alignment: .leading) { Capsule().fill(.white).frame(width: 260 * scale * CGFloat(clap) / 100, height: 14 * scale) }
+                    Text("\(clap)").monospacedDigit()
+                }
+                .font(.system(size: 30 * scale, weight: .bold))
+                .animation(.spring(response: 0.6, dampingFraction: 0.7), value: clap)
+            }
+            if let parts = result.perSinger, parts.count > 1 {
+                HStack(spacing: 30 * scale) {
+                    ForEach(parts) { p in
+                        VStack(spacing: 2 * scale) {
+                            Text("\(p.count)").font(.system(size: 48 * scale, weight: .black, design: .rounded)).monospacedDigit()
+                            Text(p.name).font(.system(size: 22 * scale, weight: .semibold)).opacity(0.8)
+                        }
+                        .foregroundStyle(p.colorHex.map { Color(hex: $0) } ?? theme.text)
+                    }
+                }
+                .opacity(appear(elapsed, at: 3))
+            }
             if let total, let countUp {
                 ZStack {
                     Circle().fill(.white).blur(radius: 90 * scale).opacity(0.22).padding(60 * scale)

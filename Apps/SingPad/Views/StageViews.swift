@@ -167,6 +167,7 @@ struct SearchPanel: View {
     @State private var selected: SongSummary?
     @State private var requesting: CatalogTrack?
     @State private var loading = false
+    @State private var humResults: [SongSummary]?
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -178,6 +179,7 @@ struct SearchPanel: View {
                     .submitLabel(.search)
                     .autocorrectionDisabled()
                 if loading { ProgressView().controlSize(.small) }
+                HumButton { found in humResults = found; query = "" }
                 if !query.isEmpty {
                     Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain).opacity(0.7)
                 }
@@ -188,6 +190,7 @@ struct SearchPanel: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     chip("Ready now", filters.readyOnly) { filters.readyOnly.toggle() }
+                    chip("Favorites", filters.favoritesOf != nil) { filters.favoritesOf = filters.favoritesOf == nil ? model.currentSingerID : nil }
                     chip("Duets", filters.duetOnly) { filters.duetOnly.toggle() }
                     ForEach([1980, 1990, 2000, 2010, 2020], id: \.self) { d in
                         chip("\(String(format: "%02d", d % 100))s", filters.decade == d) { filters.decade = filters.decade == d ? nil : d }
@@ -196,7 +199,20 @@ struct SearchPanel: View {
             }
 
             List {
-                if query.isEmpty {
+                if let hum = humResults, query.isEmpty {
+                    Section("Sounds like") {
+                        ForEach(hum) { s in Button { selected = s } label: { SongRow(song: s) }.buttonStyle(.plain) }
+                        if hum.isEmpty { Text("No match. Hum the chorus a bit longer, or only songs already prepared can be found.").opacity(0.7) }
+                        Button("Clear") { humResults = nil }
+                    }
+                } else if query.isEmpty && filters.favoritesOf != nil {
+                    Section("Favorites") {
+                        ForEach(results.songs) { s in
+                            Button { selected = s } label: { SongRow(song: s) }.buttonStyle(.plain)
+                        }
+                        if results.songs.isEmpty { Text("Tap the heart on a song to keep it here.").opacity(0.7) }
+                    }
+                } else if query.isEmpty {
                     Section(model.currentSinger.map { "For \($0.name)" } ?? "For you") {
                         ForEach(suggestions) { s in
                             Button { selected = s.song } label: { SongRow(song: s.song, detail: s.reason) }.buttonStyle(.plain)
@@ -228,9 +244,9 @@ struct SearchPanel: View {
         }
         .padding(14)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 30))
-        .task(id: "\(query)|\(filters.readyOnly)|\(filters.duetOnly)|\(filters.decade ?? 0)") {
+        .task(id: "\(query)|\(filters.readyOnly)|\(filters.duetOnly)|\(filters.decade ?? 0)|\(filters.favoritesOf ?? 0)|\(model.ratings.count)") {
             try? await Task.sleep(for: .milliseconds(220))
-            guard let client = model.client, !query.isEmpty else { return }
+            guard let client = model.client, !query.isEmpty || filters.favoritesOf != nil else { return }
             loading = true
             if let r = try? await client.search(query, filters: filters) { results = r }
             loading = false
@@ -330,7 +346,19 @@ struct ResultCard: View {
                 }
                 .padding(.top, 4)
             }
+            if result.applause != nil || (result.perSinger?.count ?? 0) > 1 {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(result.perSinger ?? []) { p in Text("\(p.name): \(p.count)").font(.headline) }
+                    if let a = result.applause { Text("👏 \(a)").font(.headline) }
+                }
+            }
             Spacer(minLength: 0)
+            if let url = result.shareURL {
+                VStack(spacing: 6) {
+                    QRCodeView(url).padding(8).background(.white, in: RoundedRectangle(cornerRadius: 12)).frame(width: 110, height: 110)
+                    Text("Take it home").font(.caption).opacity(0.75)
+                }
+            }
         }
         .padding(20)
         .glassEffect(.regular.tint((result.singers.first?.color ?? .orange).opacity(0.25)), in: RoundedRectangle(cornerRadius: 28))
@@ -352,13 +380,27 @@ struct MixerSheet: View {
                 Section("Music") {
                     slider("Guide vocal", "person.wave.2", Binding(get: { model.state.nowPlaying.guideVocal }, set: { model.send(.setGuideVocal($0)) }))
                     slider("Music volume", "speaker.wave.2", binding({ $0.musicVolume }) { $0.musicVolume = $1 })
+                    let np = model.state.nowPlaying
+                    Stepper(value: Binding(get: { np.keyShift }, set: { model.send(.setKey($0)) }), in: -6...6) {
+                        LabeledContent { Text(np.keyShift == 0 ? "Original" : "\(np.keyShift > 0 ? "+" : "")\(np.keyShift)").monospacedDigit() } label: { Label("Key", systemImage: "music.note") }
+                    }
+                    Stepper(value: Binding(get: { np.lyricOffsetMs }, set: { model.send(.setLyricOffset(ms: $0)) }), in: -5000...5000, step: 100) {
+                        LabeledContent { Text(np.lyricOffsetMs == 0 ? "As found" : "\(np.lyricOffsetMs > 0 ? "+" : "")\(np.lyricOffsetMs) ms").monospacedDigit() } label: { Label("Lyric timing", systemImage: "text.badge.checkmark") }
+                    }
+                    Stepper(value: Binding(get: { np.tempo }, set: { model.send(.setTempo($0)) }), in: 0.75...1.25, step: 0.05) {
+                        LabeledContent { Text("\(Int((np.tempo * 100).rounded()))%").monospacedDigit() } label: { Label("Tempo", systemImage: "metronome") }
+                    }
                 }
                 Section {
                     Toggle(isOn: Binding(get: { model.state.settings.playback.micEnabled }, set: { v in model.updateSettings { $0.playback.micEnabled = v } })) {
                         Label("Microphone", systemImage: "mic")
                     }
                     slider("Mic volume", "mic.fill", binding({ $0.micGain }) { $0.micGain = $1 })
+                    Picker(selection: Binding(get: { model.state.settings.playback.micPreset }, set: { p in model.updateSettings { $0.playback.micPreset = p } })) {
+                        ForEach(MicPreset.allCases, id: \.rawValue) { Text($0.name).tag($0.rawValue) }
+                    } label: { Label("Effect", systemImage: "sparkles") }
                     slider("Reverb", "waveform.path", binding({ $0.micReverb }) { $0.micReverb = $1 })
+                    slider("Echo", "dot.radiowaves.right", binding({ $0.micEcho }) { $0.micEcho = $1 })
                 } header: {
                     Text("Microphone")
                 } footer: {
@@ -366,6 +408,15 @@ struct MixerSheet: View {
                         Text(mic.message ?? (mic.state == .running ? "Live on \(mic.deviceName ?? "the Mac's mic")" : mic.state.rawValue.capitalized))
                     }
                 }
+                Section {
+                    let np = model.state.nowPlaying
+                    if np.loopStartMs != nil {
+                        Button { model.send(.setLoop(.init(startMs: nil, endMs: nil))) } label: { Label("Stop the loop", systemImage: "repeat.circle.fill") }
+                    } else {
+                        Button { loopLines(1) } label: { Label("Loop this line", systemImage: "repeat.1") }
+                        Button { loopLines(4) } label: { Label("Loop the next four lines", systemImage: "repeat") }
+                    }
+                } header: { Text("Practice") } footer: { Text("A practice loop is not saved to the stats or recorded.") }
                 Section("Next songs") {
                     slider("Default guide vocal", "person.wave.2.fill", binding({ $0.defaultGuideVocal }) { $0.defaultGuideVocal = $1 })
                 }
@@ -374,6 +425,15 @@ struct MixerSheet: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private func loopLines(_ count: Int) {
+        guard let l = model.lyrics, !l.lines.isEmpty else { return }
+        let t = model.position
+        let i = l.lineIndex(at: t) ?? l.lines.firstIndex { $0.start > t } ?? 0
+        let last = min(l.lines.count - 1, i + count - 1)
+        let start = max(0, l.lines[i].start - 1.0), end = l.lines[last].end + 0.6
+        model.send(.setLoop(.init(startMs: Int(start * 1000), endMs: Int(end * 1000))))
     }
 
     private func slider(_ title: String, _ symbol: String, _ value: Binding<Double>) -> some View {
@@ -385,5 +445,45 @@ struct MixerSheet: View {
             }
             Slider(value: value, in: 0...1)
         }
+    }
+}
+
+import AVFoundation
+
+/// Records eight seconds of humming and asks the Mac which song it is.
+struct HumButton: View {
+    var onResult: ([SongSummary]) -> Void
+    @Environment(PadModel.self) private var model
+    @State private var recorder: AVAudioRecorder?
+    @State private var busy = false
+
+    var body: some View {
+        Button { Task { await hum() } } label: {
+            Image(systemName: recorder != nil ? "waveform.circle.fill" : busy ? "ellipsis.circle" : "music.mic.circle")
+                .font(.title2).symbolEffect(.pulse, isActive: recorder != nil)
+        }
+        .buttonStyle(.plain)
+        .disabled(busy)
+        .accessibilityLabel("Hum to search")
+    }
+
+    private func hum() async {
+        guard await AVAudioApplication.requestRecordPermission() else { model.toast = "Allow the microphone in Settings to hum a song"; return }
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker])
+        try? session.setActive(true)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("hum.m4a")
+        let settings: [String: Any] = [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 16000, AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 48000]
+        guard let r = try? AVAudioRecorder(url: url, settings: settings) else { return }
+        recorder = r
+        model.toast = "Hum the chorus for 8 seconds…"
+        r.record(forDuration: 8)
+        try? await Task.sleep(for: .seconds(8.3))
+        r.stop()
+        recorder = nil
+        busy = true
+        defer { busy = false }
+        guard let data = try? Data(contentsOf: url), let client = model.client else { return }
+        do { onResult(try await client.humSearch(data)) } catch { model.toast = error.localizedDescription }
     }
 }

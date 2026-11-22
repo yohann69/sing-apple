@@ -174,3 +174,18 @@ public struct SettingRecord: Codable, Sendable, FetchableRecord, PersistableReco
     public var key: String
     public var json: String
 }
+
+public struct RecordingRecord: Codable, Sendable, FetchableRecord, MutablePersistableRecord, TableRecord {
+    public static let databaseTableName = "recording"
+    public var id: Int64?
+    public var playId: Int64
+    public var dryPath: String?
+    public var wetPath: String?
+    public var mixPath: String?
+    public var createdAt: Date?
+    public var durationMs: Int = 0
+    public var shareToken: String?
+    public var kept = false
+
+    public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
+}

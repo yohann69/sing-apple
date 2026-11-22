@@ -136,6 +136,24 @@ struct NowPlayingPane: View {
             Text("Mix").font(.headline)
             LabeledSlider(title: "Guide vocal", value: Binding(get: { host.nowPlaying.guideVocal }, set: { host.setGuideVocal($0) }), format: { "\(Int($0 * 100))%" })
             LabeledSlider(title: "Music volume", value: $host.settings.playback.musicVolume, format: { "\(Int($0 * 100))%" })
+            HStack {
+                Stepper("Key: \(host.nowPlaying.keyShift > 0 ? "+" : "")\(host.nowPlaying.keyShift)", value: Binding(get: { host.nowPlaying.keyShift }, set: { host.setKey($0) }), in: -6...6)
+                Spacer()
+                Stepper("Tempo: \(Int((host.nowPlaying.tempo * 100).rounded()))%", value: Binding(get: { host.nowPlaying.tempo }, set: { host.setTempo($0) }), in: 0.75...1.25, step: 0.05)
+            }
+            .font(.callout)
+            HStack {
+                if host.nowPlaying.loopStartMs != nil {
+                    Button("Stop practice loop") { host.setLoop(start: nil, end: nil) }
+                } else {
+                    Button("Practice: loop this line") {
+                        if let l = host.lyrics, let i = l.lineIndex(at: host.lyricTime) ?? l.lines.firstIndex(where: { $0.start > host.lyricTime }) {
+                            host.setLoop(start: Int(max(0, l.lines[i].start - 1) * 1000), end: Int((l.lines[i].end + 0.6) * 1000))
+                        }
+                    }
+                }
+            }
+            .buttonStyle(.glass)
             Divider().opacity(0.3)
             HStack {
                 Toggle("Microphone", isOn: $host.settings.playback.micEnabled)
@@ -157,7 +175,11 @@ struct NowPlayingPane: View {
                 .glassEffect(.regular.tint(.orange.opacity(0.3)), in: RoundedRectangle(cornerRadius: 16))
             }
             LabeledSlider(title: "Mic volume", value: $host.settings.playback.micGain, format: { "\(Int($0 * 100))%" })
+            Picker("Effect", selection: $host.settings.playback.micPreset) {
+                ForEach(MicPreset.allCases, id: \.rawValue) { Text($0.name).tag($0.rawValue) }
+            }
             LabeledSlider(title: "Reverb", value: $host.settings.playback.micReverb, format: { "\(Int($0 * 100))%" })
+            LabeledSlider(title: "Echo", value: $host.settings.playback.micEcho, format: { "\(Int($0 * 100))%" })
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
